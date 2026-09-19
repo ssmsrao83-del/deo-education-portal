@@ -10,7 +10,7 @@ st.title("🎓 District Educational Office - Management Portal")
 st.caption("West Godavari District - School Education Department")
 st.markdown("---")
 
-EXCEL_FILE_PATH = r"C:\Users\admin\OneDrive - AP School Education\EDUCATION DATA\UPTO DATE UDISE ROLL.xlsx"
+EXCEL_FILE_PATH = EXCEL_FILE_PATH = r"C:\Users\admin\OneDrive - AP School Education\EDUCATION DATA\UPTO DATE UDISE ROLL.xlsx"
 
 tab1, tab2, tab3, tab4 = st.tabs([
     "🏫 School 360° & UDISE Reports", 
