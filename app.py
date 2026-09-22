@@ -200,9 +200,9 @@ with tab1:
                         with col_t2:
                             st.bar_chart(cdf.set_index("Class")[["Boys 👦", "Girls 👧"]])
                     else:
-                        st.info("ఈ పాఠశాలకు సంబంధించిన తరగతుల వివరాలు లభించలేదు.")
+                        st.info("Ee paatasaalaku sambandhinchina tharagathula vivaraalu labhinchaledhu.")
                 else:
-                    st.warning("ఈ UDISE కోడ్ తో రికార్డు కనబడలేదు.")
+                    st.warning("Ee UDISE code tho record kanabada ledhu.")
 
         with subtab2:
             st.subheader("📊 Mandal-wise Enrolment Abstract")
@@ -242,7 +242,7 @@ with tab1:
             if mgmt_col and sel_mgmt:
                 filtered_df = filtered_df[filtered_df[mgmt_col].isin(sel_mgmt)]
 
-            st.write(f"మొత్తం పాఠశాలలు: **{len(filtered_df)}**")
+            st.write(f"Moththam Paatasaalalu: **{len(filtered_df)}**")
             st.dataframe(filtered_df, use_container_width=True)
 
             buffer = io.BytesIO()
@@ -258,13 +258,12 @@ with tab2:
 with tab3:
     st.subheader("📊 Cadre Strength, Working & Vacancy Analysis")
     if df_cadre is None:
-        st.warning(f"⚠️ '{TEACHERS_FILE_PATH}' ఫైల్ సరిగ్గా లోడ్ కాలేదు. దయచేసి ఫైల్ అప్‌లోడ్ అయిందో లేదో తనిఖీ చేయండి.")
+        st.warning(f"⚠️ '{TEACHERS_FILE_PATH}' file sarigga load kaledhu. File upload aindo ledho chudandi.")
     else:
         c_udise = next((c for c in df_cadre.columns if 'UDISE' in str(c).upper()), None)
         c_school = next((c for c in df_cadre.columns if any(k in str(c).upper() for k in ['HS/UPS_NAME', 'SCHOOL', 'NAME'])), None)
         c_mandal = next((c for c in df_cadre.columns if 'MANDAL' in str(c).upper()), None)
         
-        # Segregate columns by section
         sanc_cols = [c for c in df_cadre.columns if 'SANCTIONED' in str(c).upper() and 'TOTAL' not in str(c).upper()]
         work_cols = [c for c in df_cadre.columns if 'WORKING' in str(c).upper() and 'TOTAL' not in str(c).upper() and 'MTS' not in str(c).upper()]
         vac_cols  = [c for c in df_cadre.columns if 'VACANT' in str(c).upper() and 'TOTAL' not in str(c).upper()]
@@ -274,11 +273,28 @@ with tab3:
         tot_vac_col  = next((c for c in df_cadre.columns if 'VACANT' in str(c).upper() and 'TOTAL' in str(c).upper()), None)
 
         def normalize_cadre_name(name):
-            n = name.split('-')[-1].strip()
-            # Normalize "Gr II HM e" -> "Gr II HM"
-            if n.lower().startswith('gr ii hm') or n.lower().startswith('gr-ii hm'):
+            clean = str(name).strip()
+            # Section keywords theesiveyadam
+            for kw in ['No of Posts Sanctioned', 'No of Posts Working', 'No of Posts Vacant', 'Sanctioned', 'Working', 'Vacant']:
+                if kw.lower() in clean.lower():
+                    # Rendava vaipu unna post name ni theesukondi
+                    parts = clean.split(' - ')
+                    if len(parts) > 1:
+                        clean = parts[-1].strip()
+                    else:
+                        clean = clean.replace(kw, '').strip(' -:')
+            
+            clean = clean.replace('01.09.2026', '').strip(' -:')
+            
+            # Gr II HM e ni Gr II HM ga
+            if clean.lower().startswith('gr ii hm') or clean.lower().startswith('gr-ii hm'):
                 return "Gr II HM"
-            return n
+            # SGT TELUGU poorthiga ravadaniki
+            if 'SGT' in str(name).upper() and 'TELUGU' in str(name).upper():
+                return "SGT - TELUGU"
+            if 'SGT' in str(name).upper() and 'URDU' in str(name).upper():
+                return "SGT URDU"
+            return clean
 
         c_tab1, c_tab2, c_tab3 = st.tabs([
             "🔍 School Cadre Profile", 
@@ -317,19 +333,16 @@ with tab3:
                 st.markdown("##### 📋 Post-wise Breakup (Sanctioned vs Working vs Vacant)")
                 
                 post_list = []
-                # Pair columns positionally or via normalized name
                 for idx, sc in enumerate(sanc_cols):
                     clean_post = normalize_cadre_name(sc)
                     
-                    # 1. Match by positional index if lists are equal length
                     wc = work_cols[idx] if idx < len(work_cols) else None
                     vc = vac_cols[idx] if idx < len(vac_cols) else None
                     
-                    # 2. Or fallback to matching normalized name
                     if not wc or clean_post.lower() not in normalize_cadre_name(wc).lower():
                         wc = next((c for c in work_cols if clean_post.lower() == normalize_cadre_name(c).lower()), wc)
                     if not vc or clean_post.lower() not in normalize_cadre_name(vc).lower():
-                        vc = next((c for c in vac_cols if clean_post.lower() == normalize_cadre_name(c).lower()), vc)
+                        vc = next((c for c in vac_cols if clean_post.lower() == normalize_cadre_name(vc).lower()), vc)
 
                     s_val = int(pd.to_numeric(c_row[sc], errors='coerce')) if pd.notnull(c_row[sc]) else 0
                     w_val = int(pd.to_numeric(c_row[wc], errors='coerce')) if wc and pd.notnull(c_row[wc]) else 0
@@ -347,9 +360,9 @@ with tab3:
                     p_df = pd.DataFrame(post_list)
                     st.dataframe(p_df, use_container_width=True, hide_index=True)
                 else:
-                    st.info("ఈ పాఠశాలకు సంబంధించిన పోస్టుల విభజన వివరాలు అందుబాటులో లేవు.")
+                    st.info("Ee paatasaalaku sambandhinchina post-wise vivaraalu levu.")
             else:
-                st.info("పాఠశాల వివరాలు చూడటానికి UDISE కోడ్ నమోదు చేయండి.")
+                st.info("Paatasaala vivaraalu chudadaniki UDISE code enter cheyandi.")
 
         with c_tab2:
             st.markdown("#### 📌 District / Mandal-wise Vacancy by Subject & Cadre")
@@ -369,7 +382,7 @@ with tab3:
                     with v_col2:
                         st.bar_chart(vdf.set_index("Designation / Post"))
                 else:
-                    st.info("ఎటువంటి ఖాళీలు నమోదు కాలేదు.")
+                    st.info("Khaaleelu emee record kaledhu.")
 
         with c_tab3:
             st.markdown("#### 📑 Mandal-wise Cadre Abstract & Download")
