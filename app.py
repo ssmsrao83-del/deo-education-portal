@@ -48,19 +48,17 @@ def clean_and_map(val, mapping_dict):
         return str(val)
 
 def render_print_button(dataframe, report_title="DEO REPORT", subtitle="West Godavari District"):
-    """Creates a direct browser print button that prints only the clean styled table"""
-    html_table = dataframe.to_html(index=False, classes='styled-table')
+    """Opens a clean new print preview window containing the full table with headers"""
+    html_table = dataframe.to_html(index=False, classes='print-table')
+    # Clean up single/double quotes to avoid JS syntax errors
+    html_table_escaped = html_table.replace("`", "'").replace("\\", "\\\\")
+
     html_code = f"""
     <!DOCTYPE html>
     <html>
     <head>
     <style>
-      body {{
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-          margin: 10px 0;
-          color: #111;
-      }}
-      .print-btn {{
+      .p-btn {{
           background-color: #0d6efd;
           color: white;
           border: none;
@@ -72,62 +70,98 @@ def render_print_button(dataframe, report_title="DEO REPORT", subtitle="West God
           display: inline-flex;
           align-items: center;
           gap: 6px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          box-shadow: 0 2px 4px rgba(0,0,0,0.15);
       }}
-      .print-btn:hover {{ background-color: #0b5ed7; }}
-      .header-box {{
-          display: none;
-          text-align: center;
-          margin-bottom: 12px;
-          border-bottom: 2px solid #222;
-          padding-bottom: 8px;
-      }}
-      .header-box h2 {{ margin: 0; font-size: 18px; color: #1a237e; text-transform: uppercase; }}
-      .header-box h4 {{ margin: 4px 0 0 0; font-size: 14px; color: #333; }}
-      .header-box p {{ margin: 2px 0 0 0; font-size: 12px; color: #666; }}
-      .styled-table {{
-          width: 100%;
-          border-collapse: collapse;
-          margin-top: 10px;
-          font-size: 12px;
-      }}
-      .styled-table th, .styled-table td {{
-          border: 1px solid #777;
-          padding: 6px 8px;
-          text-align: left;
-      }}
-      .styled-table th {{
-          background-color: #e9ecef !important;
-          color: #000;
-          font-weight: bold;
-      }}
-      .styled-table tr:nth-child(even) {{ background-color: #f8f9fa; }}
-      @media print {{
-          .no-print {{ display: none !important; }}
-          .header-box {{ display: block !important; }}
-          body {{ margin: 0; padding: 0; }}
-          .styled-table {{ font-size: 11px; }}
-          .styled-table th, .styled-table td {{ border: 1px solid #000; padding: 4px 6px; }}
-      }}
+      .p-btn:hover {{ background-color: #0b5ed7; }}
     </style>
     </head>
-    <body>
-      <div class="no-print">
-        <button class="print-btn" onclick="window.print()">
-          🖨️ Direct Print / Save as PDF
-        </button>
-      </div>
-      <div id="print-area">
-        <div class="header-box">
-          <h2>GOVERNMENT OF ANDHRA PRADESH - SCHOOL EDUCATION DEPARTMENT</h2>
-          <h4>DISTRICT EDUCATIONAL OFFICE - WEST GODAVARI</h4>
-          <p><strong>{report_title}</strong> | {subtitle}</p>
-        </div>
-      </div>
+    <body style="margin: 0; padding: 0;">
+      <button class="p-btn" onclick="printReport()">🖨️ Direct Print / Save as PDF</button>
+
+      <script>
+      function printReport() {{
+          var tableHtml = `{html_table_escaped}`;
+          var printWin = window.open('', '', 'width=900,height=650');
+          printWin.document.write(`
+            <html>
+            <head>
+              <title>{report_title}</title>
+              <style>
+                body {{
+                    font-family: Arial, sans-serif;
+                    margin: 20px;
+                    color: #000;
+                }}
+                .header-area {{
+                    text-align: center;
+                    border-bottom: 2px solid #000;
+                    padding-bottom: 8px;
+                    margin-bottom: 15px;
+                }}
+                .header-area h2 {{
+                    margin: 0;
+                    font-size: 17px;
+                    color: #1a237e;
+                    text-transform: uppercase;
+                }}
+                .header-area h3 {{
+                    margin: 4px 0;
+                    font-size: 14px;
+                    color: #333;
+                }}
+                .header-area p {{
+                    margin: 3px 0 0 0;
+                    font-size: 12px;
+                    color: #555;
+                    font-weight: bold;
+                }}
+                .print-table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    font-size: 12px;
+                }}
+                .print-table th, .print-table td {{
+                    border: 1px solid #444;
+                    padding: 6px 8px;
+                    text-align: left;
+                }}
+                .print-table th {{
+                    background-color: #f2f2f2 !important;
+                    font-weight: bold;
+                    -webkit-print-color-adjust: exact;
+                }}
+                .print-table tr:nth-child(even) {{
+                    background-color: #fafafa;
+                    -webkit-print-color-adjust: exact;
+                }}
+                @media print {{
+                    body {{ margin: 10mm; }}
+                    .print-table {{ font-size: 11px; }}
+                }}
+              </style>
+            </head>
+            <body>
+              <div class="header-area">
+                <h2>GOVERNMENT OF ANDHRA PRADESH - SCHOOL EDUCATION DEPARTMENT</h2>
+                <h3>DISTRICT EDUCATIONAL OFFICE - WEST GODAVARI</h3>
+                <p>{report_title} | {subtitle}</p>
+              </div>
+              ${{tableHtml}}
+            </body>
+            </html>
+          `);
+          printWin.document.close();
+          printWin.focus();
+          setTimeout(function() {{
+              printWin.print();
+              printWin.close();
+          }}, 400);
+      }}
+      </script>
     </body>
     </html>
     """
-    components.html(html_code, height=48, scrolling=False)
+    components.html(html_code, height=45, scrolling=False)
 
 @st.cache_data(ttl=30)
 def load_udise_data(file_path):
@@ -183,9 +217,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "📄 CSE MIS Reports"
 ])
 
-# ==========================================
-# ------------ TAB 1: UDISE ---------------
-# ==========================================
+# ----------------- TAB 1: UDISE -----------------
 with tab1:
     if df is None:
         st.error(f"⚠️ File dorakaledhu: {EXCEL_FILE_PATH}")
@@ -314,7 +346,7 @@ with tab1:
                         mandal_summary.to_excel(writer, index=False, sheet_name='Mandal_Abstract')
                     st.download_button("📥 Download Mandal Abstract as Excel", data=m_buf.getvalue(), file_name="Mandal_Wise_Abstract.xlsx", use_container_width=True)
                 with col_btn2:
-                    render_print_button(mandal_summary, report_title="MANDAL-WISE ENROLMENT ABSTRACT", subtitle="District Educational Office")
+                    render_print_button(mandal_summary, report_title="MANDAL-WISE ENROLMENT ABSTRACT", subtitle="West Godavari District")
 
         with subtab3:
             st.subheader("📑 Custom Reports & Excel Export")
@@ -344,15 +376,11 @@ with tab1:
             with col_cf2:
                 render_print_button(filtered_df.head(100), report_title="CUSTOM UDISE REPORT", subtitle=f"Total Schools: {len(filtered_df)}")
 
-# ==========================================
-# ------------ TAB 2: TEACHERS ------------
-# ==========================================
+# ----------------- TAB 2: TEACHERS -----------------
 with tab2:
     st.info("🧑‍🏫 Teachers Directory & Retirement Tracker - Module Coming Soon")
 
-# ==========================================
-# ------------ TAB 3: CADRE & VACANCY -----
-# ==========================================
+# ----------------- TAB 3: CADRE & VACANCY ----------
 with tab3:
     st.subheader("📊 Cadre Strength, Working & Vacancy Analysis")
     if df_cadre is None:
@@ -450,7 +478,7 @@ with tab3:
                 if post_list:
                     p_df = pd.DataFrame(post_list)
                     st.dataframe(p_df, use_container_width=True, hide_index=True)
-                    render_print_button(p_df, report_title=f"{s_name} - CADRE STRENGTH & VACANCY", subtitle=f"Mandal: {m_name}")
+                    render_print_button(p_df, report_title=f"{s_name} - CADRE BREAKUP", subtitle=f"Mandal: {m_name}")
                 else:
                     st.info("ఈ పాఠశాలకు సంబంధించిన పోస్టుల విభజన వివరాలు అందుబాటులో లేవు.")
             else:
@@ -604,8 +632,6 @@ with tab3:
             else:
                 st.info("కేడర్ వివరాలు అందుబాటులో లేవు.")
 
-# ==========================================
-# ------------ TAB 4: MIS REPORTS ---------
-# ==========================================
+# ----------------- TAB 4: MIS REPORTS -------------
 with tab4:
     st.info("📄 CSE MIS Reports - Module Coming Soon")
