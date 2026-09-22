@@ -392,6 +392,15 @@ with tab1:
 
         with subtab1:
             st.subheader("🏫 Individual School 360° Profile")
+            
+            # --- DISTRICT SUMMARY CARDS ---
+            d_s1, d_s2, d_s3, d_s4 = st.columns(4)
+            d_s1.metric("District Total Schools 🏫", f"{len(df):,}")
+            d_s2.metric("Total District Roll 👥", f"{int(df[tot_col].sum()):,}")
+            d_s3.metric("District Boys 👦", f"{int(df[boys_col].sum()):,}")
+            d_s4.metric("District Girls 👧", f"{int(df[girls_col].sum()):,}")
+            st.markdown("---")
+
             col_search1, col_search2 = st.columns([3, 1])
             with col_search1:
                 search_code = st.text_input("Enter 11 Digit UDISE Code:", value="28153500204")
@@ -470,11 +479,21 @@ with tab1:
             df_clean = df[~df[block_col].astype(str).str.match(r'^\(?\d+\)?$|^nan$', case=False)].copy()
             df_clean = df_clean[df_clean[block_col].astype(str).str.len() > 2]
 
+            # --- DISTRICT SUMMARY CARDS FOR STAGES ---
+            ds_1, ds_2, ds_3, ds_4, ds_5 = st.columns(5)
+            ds_1.metric("PP (1-3) Enrolment", f"{int(df_clean['PP_T'].sum()):,}")
+            ds_2.metric("Class 1-5 Enrolment", f"{int(df_clean['P_1_5_T'].sum()):,}")
+            ds_3.metric("Class 6-8 UP Enrolment", f"{int(df_clean['UP_6_8_T'].sum()):,}")
+            ds_4.metric("Class 6-10 HS Enrolment", f"{int(df_clean['HS_6_10_T'].sum()):,}")
+            ds_5.metric("Class 11-12 Col Enrolment", f"{int(df_clean['COL_11_12_T'].sum()):,}")
+            st.markdown("---")
+
             mgmt_choice = st.selectbox(
                 "Select Management to View Stage Breakdown (PP 1-3, 1-5, 6-8, 6-10, 11-12):",
                 ["ALL MANAGEMENTS (Total District)", "STATE GOVT Only", "AIDED Only", "PRIVATE Only", "COMPARATIVE VIEW (Govt vs Aided vs Pvt Total Roll)"]
             )
 
+            # TOP MANDAL-WISE TABLE (UNDISTURBED)
             if mgmt_choice == "COMPARATIVE VIEW (Govt vs Aided vs Pvt Total Roll)":
                 piv_s = df_clean.pivot_table(index=block_col, columns='Merged_Management', values=udise_col, aggfunc='count', fill_value=0)
                 piv_b = df_clean.pivot_table(index=block_col, columns='Merged_Management', values=boys_col, aggfunc='sum', fill_value=0)
@@ -587,6 +606,7 @@ with tab1:
                         subtitle="PP (1-3), 1-5 (Pr/UP/HS), 6-8 (UP), 6-10 (HS), 11-12 (Colleges)"
                     )
 
+            # --- KOTHTHA REPORT: DISTRICT MANAGEMENT-WISE SUMMARY (GOVT / AIDED / PVT) ---
             st.markdown("---")
             st.markdown("#### 🏛️ District Management-wise Stage Abstract (Govt vs Aided vs Pvt)")
             st.caption("District-level consolidation across Pre-Primary, Primary, Upper Primary, High School & College Stages")
@@ -650,6 +670,7 @@ with tab1:
         # --- SUBTAB 3: CUSTOM REPORTS (CLEANED UP TO HIDE INTERNAL CALC COLUMNS) ---
         with subtab3:
             st.subheader("📑 Custom Reports & Excel Export")
+            
             f1, f2 = st.columns(2)
             with f1:
                 mandal_list = sorted([str(m) for m in df[block_col].dropna().unique() if len(str(m).strip()) > 2 and not str(m).strip().startswith('(')]) if block_col else []
@@ -668,7 +689,14 @@ with tab1:
             if mgmt_col and sel_mgmt:
                 filtered_df = filtered_df[filtered_df[mgmt_col].isin(sel_mgmt)]
 
-            st.write(f"Moththam Paatasaalalu: **{len(filtered_df)}**")
+            # --- SUMMARY METRICS FOR FILTERED DATA ---
+            c_m1, c_m2, c_m3, c_m4 = st.columns(4)
+            c_m1.metric("Selected Schools 🏫", f"{len(filtered_df):,}")
+            c_m2.metric("Total Selected Roll 👥", f"{int(filtered_df[tot_col].sum()):,}")
+            c_m3.metric("Selected Boys 👦", f"{int(filtered_df[boys_col].sum()):,}")
+            c_m4.metric("Selected Girls 👧", f"{int(filtered_df[girls_col].sum()):,}")
+            st.markdown("---")
+
             st.dataframe(filtered_df, use_container_width=True)
 
             col_cf1, col_cf2 = st.columns([1, 1])
@@ -698,10 +726,13 @@ with tab1:
                 tot_mbu_pend = int(df_mbu['Total_MBU_Pending'].sum())
                 schools_with_pend = int((df_mbu['Total_MBU_Pending'] > 0).sum())
                 
-                mb_m1, mb_m2, mb_m3 = st.columns(3)
-                mb_m1.metric("Total MBU Pending Students ⚠️", f"{tot_mbu_pend:,}")
+                # --- DISTRICT SUMMARY CARDS FOR MBU ---
+                mb_m1, mb_m2, mb_m3, mb_m4 = st.columns(4)
+                mb_m1.metric("Total District MBU Pending ⚠️", f"{tot_mbu_pend:,}")
                 mb_m2.metric("Schools with MBU Pending 🏫", f"{schools_with_pend:,}")
-                mb_m3.metric("Total District Schools Tracked", f"{len(df_mbu):,}")
+                mb_m3.metric("District Pending (5-15) 👦", f"{int(df_mbu['MBU_P_5_15'].sum()):,}")
+                mb_m4.metric("District Pending (15+) 🧑", f"{int(df_mbu['MBU_P_15_PLUS'].sum()):,}")
+                st.markdown("---")
 
                 mbu_view1, mbu_view2 = st.tabs([
                     "📊 Mandal-wise Merged Management MBU Abstract", 
@@ -713,7 +744,6 @@ with tab1:
                     if mbu_block_col and 'Merged_Management' in df_mbu.columns:
                         mbu_clean = df_mbu.copy()
                         
-                        # Pivot for 5-15 and 15+ across Govt, Aided, Private
                         piv_5_15 = mbu_clean.pivot_table(index=mbu_block_col, columns='Merged_Management', values='MBU_P_5_15', aggfunc='sum', fill_value=0)
                         piv_15_p = mbu_clean.pivot_table(index=mbu_block_col, columns='Merged_Management', values='MBU_P_15_PLUS', aggfunc='sum', fill_value=0)
 
@@ -993,6 +1023,13 @@ with tab3:
                 for c in sanc_cols + work_cols + vac_cols:
                     if c in df_cadre_work.columns:
                         df_cadre_work[c] = pd.to_numeric(df_cadre_work[c], errors='coerce').fillna(0)
+
+                # --- DISTRICT SUMMARY FOR CADRE ---
+                dc_1, dc_2, dc_3 = st.columns(3)
+                dc_1.metric("District Total Sanctioned 🏛️", f"{int(df_cadre_work[tot_sanc_col].sum()):,}" if tot_sanc_col else "0")
+                dc_2.metric("District Working Staff 👥", f"{int(df_cadre_work[tot_work_col].sum()):,}" if tot_work_col else "0")
+                dc_3.metric("District Total Vacancies ⚠️", f"{int(df_cadre_work[tot_vac_col].sum()):,}" if tot_vac_col else "0")
+                st.markdown("---")
 
                 mandal_list_all = sorted(list(df_cadre_work[c_mandal].dropna().unique()))
                 selected_mandal = st.selectbox("Select Mandal to view detailed Cadre breakdown:", mandal_list_all, key="mandal_cadre_detailed_select")
