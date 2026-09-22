@@ -53,7 +53,6 @@ def load_udise_data(file_path):
         df = pd.read_excel(file_path)
         df.columns = [str(c).strip() for c in df.columns]
         
-        # Exact column mapping from AP UDISE Sheet
         for col in df.columns:
             if 'MANAGE' in col.upper():
                 df['Management_Display'] = df[col].apply(lambda x: clean_and_map(x, MANAGEMENT_MAPPING))
@@ -77,29 +76,18 @@ with tab1:
     if df is None:
         st.error(f"⚠️ File dorakaledhu: {EXCEL_FILE_PATH}")
     else:
-        # Detect Exact Column Names
         udise_col = next((c for c in df.columns if c.upper() == 'UDISE CODE' or 'UDISE' in c.upper()), None)
         school_col = next((c for c in df.columns if c.upper() == 'SCHOOL NAME'), None)
         block_col = next((c for c in df.columns if 'BLOCK NAME' in c.upper() or 'MANDAL' in c.upper()), None)
         
-        # Enrolment Totals (Find Grand Total or fallback to calculated columns)
         tot_col = next((c for c in df.columns if c.upper() in ['GRAND TOTAL', 'TOTAL ENROLMENT', 'TOTAL ROLL', 'TOTAL']), None)
         boys_col = next((c for c in df.columns if c.upper() in ['TOTAL BOYS', 'BOYS TOTAL', 'BOYS']), None)
         girls_col = next((c for c in df.columns if c.upper() in ['TOTAL GIRLS', 'GIRLS TOTAL', 'GIRLS']), None)
         
-        # Fallback if grand total column name is different: sum up any Total columns
         if not tot_col:
             candidate_totals = [c for c in df.columns if 'TOTAL' in c.upper() and '(' not in c]
-            if candidate_totals:
-                tot_col = candidate_totals[-1]
-            else:
-                # Sum class totals if explicit total column isn't found
-                class_totals = [c for c in df.columns if '(TOTAL)' in c.upper().replace(' ', '')]
-                if class_totals:
-                    df['Calculated_Grand_Total'] = df[class_totals].apply(pd.to_numeric, errors='coerce').fillna(0).sum(axis=1)
-                    tot_col = 'Calculated_Grand_Total'
+            tot_col = candidate_totals[-1] if candidate_totals else None
 
-        # Ensure numeric for total calculations
         if tot_col:
             df[tot_col] = pd.to_numeric(df[tot_col], errors='coerce').fillna(0)
         if boys_col:
@@ -139,12 +127,57 @@ with tab1:
                     st.info(f"**UDISE:** {row[udise_col]} | **Mandal (Block):** {mandal_name} | **Management:** {mgmt_val} | **Category:** {cat_val}")
                     
                     m1, m2, m3 = st.columns(3)
-                    tot_val = int(row[tot_col]) if tot_col else "N/A"
-                    b_val = int(row[boys_col]) if boys_col else "N/A"
-                    g_val = int(row[girls_col]) if girls_col else "N/A"
-                    m1.metric("Grand Total Enrolment", f"{tot_val:,}" if isinstance(tot_val, int) else tot_val)
-                    m2.metric("Total Boys 👦", f"{b_val:,}" if isinstance(b_val, int) else b_val)
-                    m3.metric("Total Girls 👧", f"{g_val:,}" if isinstance(g_val, int) else g_val)
+                    tot_val = int(row[tot_col]) if tot_col else 0
+                    b_val = int(row[boys_col]) if boys_col else 0
+                    g_val = int(row[girls_col]) if girls_col else 0
+                    m1.metric("Grand Total Enrolment", f"{tot_val:,}")
+                    m2.metric("Total Boys 👦", f"{b_val:,}")
+                    m3.metric("Total Girls 👧", f"{g_val:,}")
+
+                    st.markdown("---")
+                    
+                    # Class-wise Enrolment Breakdown Section
+                    st.markdown("#### 📋 Class-wise Enrolment Breakdown")
+                    
+                    # Collect all class related columns
+                    class_data = []
+                    # Common class prefixes: PP3, PP2, PP1, C1 to C12 or I to XII
+                    all_cols = list(df.columns)
+                    
+                    # Identify distinct class keys from headers like PP3(Boys), Class 1(Boys), etc.
+                    class_keys = []
+                    for c in all_cols:
+                        if '(' in c and ')' in c:
+                            key = c.split('(')[0].strip()
+                            if key not in class_keys and any(tag in c.upper() for tag in ['BOY', 'GIRL', 'TOTAL', 'TRANS']):
+                                class_keys.append(key)
+
+                    for ck in class_keys:
+                        b_col_k = next((c for c in all_cols if c.startswith(ck) and 'BOY' in c.upper()), None)
+                        g_col_k = next((c for c in all_cols if c.startswith(ck) and 'GIRL' in c.upper()), None)
+                        t_col_k = next((c for c in all_cols if c.startswith(ck) and 'TOTAL' in c.upper()), None)
+                        
+                        b_num = int(pd.to_numeric(row[b_col_k], errors='coerce')) if b_col_k else 0
+                        g_num = int(pd.to_numeric(row[g_col_k], errors='coerce')) if g_col_k else 0
+                        t_num = int(pd.to_numeric(row[t_col_k], errors='coerce')) if t_col_k else (b_num + g_num)
+                        
+                        if t_num > 0 or b_num > 0 or g_num > 0:
+                            class_data.append({
+                                "Class": ck,
+                                "Boys 👦": b_num,
+                                "Girls 👧": g_num,
+                                "Total Enrolment": t_num
+                            })
+
+                    if class_data:
+                        cdf = pd.DataFrame(class_data)
+                        col_t1, col_t2 = st.columns([3, 2])
+                        with col_t1:
+                            st.dataframe(cdf, use_container_width=True, hide_index=True)
+                        with col_t2:
+                            st.bar_chart(cdf.set_index("Class")[["Boys 👦", "Girls 👧"]])
+                    else:
+                        st.info("ఈ పాఠశాలకు సంబంధించిన తరగతుల వారీ వివరాలు షీట్‌లో గుర్తించబడలేదు.")
                 else:
                     st.warning("ఈ UDISE కోడ్ తో రికార్డు కనబడలేదు.")
 
