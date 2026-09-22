@@ -313,9 +313,58 @@ with tab1:
         mgmt_col = 'Management_Display' if 'Management_Display' in df.columns else next((c for c in df.columns if 'MANAGE' in c.upper()), None)
         cat_col = 'Category_Display' if 'Category_Display' in df.columns else next((c for c in df.columns if 'CATEG' in c.upper()), None)
 
-        subtab1, subtab2, subtab3, subtab4 = st.tabs([
+        # Helper functions for Stage calculation
+        def get_cols(classes, gender):
+            res = []
+            for c in df.columns:
+                for cl in classes:
+                    patterns = [f"C{cl}(", f"CLASS {cl}(", f"CLASS{cl}(", f" {cl}("]
+                    if any(p in c.upper() for p in patterns) and gender.upper() in c.upper():
+                        res.append(c)
+            return list(set(res))
+
+        def calc_sum(dframe, col_list):
+            if not col_list:
+                return pd.Series(0, index=dframe.index)
+            return dframe[col_list].apply(pd.to_numeric, errors='coerce').fillna(0).sum(axis=1)
+
+        c1_5_b = get_cols([1, 2, 3, 4, 5], 'BOY')
+        c1_5_g = get_cols([1, 2, 3, 4, 5], 'GIRL')
+        c6_8_b = get_cols([6, 7, 8], 'BOY')
+        c6_8_g = get_cols([6, 7, 8], 'GIRL')
+        c6_10_b = get_cols([6, 7, 8, 9, 10], 'BOY')
+        c6_10_g = get_cols([6, 7, 8, 9, 10], 'GIRL')
+        c11_12_b = get_cols([11, 12], 'BOY')
+        c11_12_g = get_cols([11, 12], 'GIRL')
+
+        # Precompute stages on base dataframe
+        cat_series = df['Category_Code'] if 'Category_Code' in df.columns else pd.Series(0, index=df.index)
+        
+        mask_1_5 = cat_series.isin([1, 2, 3, 6])
+        df['P_1_5_B'] = np.where(mask_1_5, calc_sum(df, c1_5_b), 0)
+        df['P_1_5_G'] = np.where(mask_1_5, calc_sum(df, c1_5_g), 0)
+        df['P_1_5_T'] = df['P_1_5_B'] + df['P_1_5_G']
+
+        mask_6_8_up = cat_series.isin([2])
+        df['UP_6_8_B'] = np.where(mask_6_8_up, calc_sum(df, c6_8_b), 0)
+        df['UP_6_8_G'] = np.where(mask_6_8_up, calc_sum(df, c6_8_g), 0)
+        df['UP_6_8_T'] = df['UP_6_8_B'] + df['UP_6_8_G']
+
+        mask_6_10_hs = cat_series.isin([3, 5, 6, 7])
+        df['HS_6_10_B'] = np.where(mask_6_10_hs, calc_sum(df, c6_10_b), 0)
+        df['HS_6_10_G'] = np.where(mask_6_10_hs, calc_sum(df, c6_10_g), 0)
+        df['HS_6_10_T'] = df['HS_6_10_B'] + df['HS_6_10_G']
+
+        mask_11_12 = cat_series.isin([11, 3, 5])
+        df['COL_11_12_B'] = np.where(mask_11_12, calc_sum(df, c11_12_b), 0)
+        df['COL_11_12_G'] = np.where(mask_11_12, calc_sum(df, c11_12_g), 0)
+        df['COL_11_12_T'] = df['COL_11_12_B'] + df['COL_11_12_G']
+
+        # 5 SUB-TABS
+        subtab1, subtab2, subtab2_ext, subtab3, subtab4 = st.tabs([
             "🔍 School 360° Search", 
             "📊 Mandal-wise Abstract", 
+            "🏫 School-wise Stage Breakdown by Mandal",
             "📑 Custom Reports & Excel Export",
             "⏳ Mandatory Biometric (MBU) Pending"
         ])
@@ -389,11 +438,11 @@ with tab1:
                         with col_t2:
                             st.bar_chart(cdf.set_index("Class")[["Boys 👦", "Girls 👧"]])
                     else:
-                        st.info("ఈ పాఠశాలకు సంబంధించిన తరగతుల వివరాలు లభించలేదు.")
+                        st.info("Ee paatasaalaku sambandhinchina tharagathula vivaraalu labhinchaledhu.")
                 else:
-                    st.warning("ఈ UDISE కోడ్ తో రికార్డు కనబడలేదు.")
+                    st.warning("Ee UDISE code tho record kanabada ledhu.")
 
-        # --- SUBTAB 2: MANDAL-WISE ABSTRACT (MERGED MANAGEMENT WITH BOYS/GIRLS BREAKDOWN) ---
+        # --- SUBTAB 2: MANDAL-WISE ABSTRACT ---
         with subtab2:
             st.subheader("📊 Mandal-wise Enrolment Abstract")
 
@@ -487,52 +536,6 @@ with tab1:
                         render_print_button(m_grp_total, report_title=f"MANDAL-WISE ABSTRACT - {target_mgmt}", subtitle="Schools, Boys, Girls & Total Enrolment")
 
             else:
-                def get_cols(classes, gender):
-                    res = []
-                    for c in df.columns:
-                        for cl in classes:
-                            patterns = [f"C{cl}(", f"CLASS {cl}(", f"CLASS{cl}(", f" {cl}("]
-                            if any(p in c.upper() for p in patterns) and gender.upper() in c.upper():
-                                res.append(c)
-                    return list(set(res))
-
-                def calc_sum(dframe, col_list):
-                    if not col_list:
-                        return pd.Series(0, index=dframe.index)
-                    return dframe[col_list].apply(pd.to_numeric, errors='coerce').fillna(0).sum(axis=1)
-
-                c1_5_b = get_cols([1, 2, 3, 4, 5], 'BOY')
-                c1_5_g = get_cols([1, 2, 3, 4, 5], 'GIRL')
-                c6_8_b = get_cols([6, 7, 8], 'BOY')
-                c6_8_g = get_cols([6, 7, 8], 'GIRL')
-                c6_10_b = get_cols([6, 7, 8, 9, 10], 'BOY')
-                c6_10_g = get_cols([6, 7, 8, 9, 10], 'GIRL')
-                c11_12_b = get_cols([11, 12], 'BOY')
-                c11_12_g = get_cols([11, 12], 'GIRL')
-
-                df_stage = df.copy()
-                cat_series = df_stage['Category_Code'] if 'Category_Code' in df_stage.columns else pd.Series(0, index=df_stage.index)
-                
-                mask_1_5 = cat_series.isin([1, 2, 3, 6])
-                df_stage['P_1_5_B'] = np.where(mask_1_5, calc_sum(df_stage, c1_5_b), 0)
-                df_stage['P_1_5_G'] = np.where(mask_1_5, calc_sum(df_stage, c1_5_g), 0)
-                df_stage['P_1_5_T'] = df_stage['P_1_5_B'] + df_stage['P_1_5_G']
-
-                mask_6_8_up = cat_series.isin([2])
-                df_stage['UP_6_8_B'] = np.where(mask_6_8_up, calc_sum(df_stage, c6_8_b), 0)
-                df_stage['UP_6_8_G'] = np.where(mask_6_8_up, calc_sum(df_stage, c6_8_g), 0)
-                df_stage['UP_6_8_T'] = df_stage['UP_6_8_B'] + df_stage['UP_6_8_G']
-
-                mask_6_10_hs = cat_series.isin([3, 5, 6, 7])
-                df_stage['HS_6_10_B'] = np.where(mask_6_10_hs, calc_sum(df_stage, c6_10_b), 0)
-                df_stage['HS_6_10_G'] = np.where(mask_6_10_hs, calc_sum(df_stage, c6_10_g), 0)
-                df_stage['HS_6_10_T'] = df_stage['HS_6_10_B'] + df_stage['HS_6_10_G']
-
-                mask_11_12 = cat_series.isin([11, 3, 5])
-                df_stage['COL_11_12_B'] = np.where(mask_11_12, calc_sum(df_stage, c11_12_b), 0)
-                df_stage['COL_11_12_G'] = np.where(mask_11_12, calc_sum(df_stage, c11_12_g), 0)
-                df_stage['COL_11_12_T'] = df_stage['COL_11_12_B'] + df_stage['COL_11_12_G']
-
                 agg_dict = {
                     udise_col: 'count', tot_col: 'sum',
                     'P_1_5_B': 'sum', 'P_1_5_G': 'sum', 'P_1_5_T': 'sum',
@@ -541,7 +544,7 @@ with tab1:
                     'COL_11_12_B': 'sum', 'COL_11_12_G': 'sum', 'COL_11_12_T': 'sum'
                 }
 
-                mandal_stage_summary = df_stage.groupby(block_col).agg(agg_dict).reset_index()
+                mandal_stage_summary = df.groupby(block_col).agg(agg_dict).reset_index()
                 mandal_stage_summary = mandal_stage_summary.rename(columns={
                     block_col: 'Mandal (Block)',
                     udise_col: 'Total Schools',
@@ -577,6 +580,75 @@ with tab1:
                 with col_btn2:
                     render_print_button(display_df_total, report_title="MANDAL-WISE STAGE-WISE ENROLMENT ABSTRACT", subtitle="1-5 (Pr/UP/HS), 6-8 (UP), 6-10 (HS), 11-12 (Colleges)")
 
+        # --- NEW SUBTAB: SCHOOL-WISE STAGE BREAKDOWN BY MANDAL & MERGED MANAGEMENT ---
+        with subtab2_ext:
+            st.subheader("🏫 School-wise Stage Breakdown by Mandal")
+            
+            m_list_stage = sorted([
+                str(m) for m in df[block_col].dropna().unique() 
+                if len(str(m).strip()) >= 3 and not str(m).strip().startswith('(')
+            ])
+            
+            c_f1, c_f2 = st.columns(2)
+            with c_f1:
+                sel_stg_mandal = st.selectbox("Select Mandal:", m_list_stage, key="stg_mandal_selector")
+            with c_f2:
+                sel_stg_mgmt = st.selectbox(
+                    "Filter by Merged Management:", 
+                    ["ALL (State Govt + Aided + Private)", "STATE GOVT Only", "AIDED Only", "PRIVATE Only"], 
+                    key="stg_mgmt_selector"
+                )
+
+            # Filter data for selected mandal
+            df_m_schools = df[df[block_col] == sel_stg_mandal].copy()
+            if sel_stg_mgmt != "ALL (State Govt + Aided + Private)":
+                target_m = sel_stg_mgmt.replace(" Only", "").strip()
+                df_m_schools = df_m_schools[df_m_schools['Merged_Management'] == target_m]
+
+            cols_req = [
+                udise_col, school_col, 'Merged_Management',
+                'P_1_5_B', 'P_1_5_G', 'P_1_5_T',
+                'UP_6_8_B', 'UP_6_8_G', 'UP_6_8_T',
+                'HS_6_10_B', 'HS_6_10_G', 'HS_6_10_T',
+                'COL_11_12_B', 'COL_11_12_G', 'COL_11_12_T',
+                tot_col
+            ]
+            
+            # Map column names to display headers
+            rename_dict = {
+                udise_col: 'UDISE Code',
+                school_col: 'School Name',
+                'Merged_Management': 'Management',
+                'P_1_5_B': '1-5 Boys', 'P_1_5_G': '1-5 Girls', 'P_1_5_T': '1-5 Total',
+                'UP_6_8_B': '6-8 UP Boys', 'UP_6_8_G': '6-8 UP Girls', 'UP_6_8_T': '6-8 UP Total',
+                'HS_6_10_B': '6-10 HS Boys', 'HS_6_10_G': '6-10 HS Girls', 'HS_6_10_T': '6-10 HS Total',
+                'COL_11_12_B': '11-12 Col Boys', 'COL_11_12_G': '11-12 Col Girls', 'COL_11_12_T': '11-12 Col Total',
+                tot_col: 'Grand Total Roll'
+            }
+
+            df_m_schools_disp = df_m_schools[cols_req].rename(columns=rename_dict)
+            df_m_schools_total = append_total_row(df_m_schools_disp, label_col='School Name', total_label='MANDAL TOTAL')
+            
+            st.dataframe(df_m_schools_total, use_container_width=True, hide_index=True)
+
+            col_sb1, col_sb2 = st.columns([1, 1])
+            with col_sb1:
+                s_buf = io.BytesIO()
+                with pd.ExcelWriter(s_buf, engine='openpyxl') as writer:
+                    df_m_schools_total.to_excel(writer, index=False, sheet_name=str(sel_stg_mandal)[:31])
+                st.download_button(
+                    f"📥 Download {sel_stg_mandal} School Stage Report (Excel)", 
+                    data=s_buf.getvalue(), 
+                    file_name=f"{sel_stg_mandal}_School_Stage_Breakdown.xlsx",
+                    use_container_width=True
+                )
+            with col_sb2:
+                render_print_button(
+                    df_m_schools_total, 
+                    report_title=f"{sel_stg_mandal} MANDAL - SCHOOL-WISE STAGE BREAKDOWN", 
+                    subtitle=f"Management: {sel_stg_mgmt} | 1-5, 6-8 UP, 6-10 HS, 11-12 Col"
+                )
+
         with subtab3:
             st.subheader("📑 Custom Reports & Excel Export")
             f1, f2 = st.columns(2)
@@ -593,7 +665,7 @@ with tab1:
             if mgmt_col and sel_mgmt:
                 filtered_df = filtered_df[filtered_df[mgmt_col].isin(sel_mgmt)]
 
-            st.write(f"మొత్తం పాఠశాలలు: **{len(filtered_df)}**")
+            st.write(f"Moththam Paatasaalalu: **{len(filtered_df)}**")
             st.dataframe(filtered_df, use_container_width=True)
 
             col_cf1, col_cf2 = st.columns([1, 1])
@@ -609,7 +681,7 @@ with tab1:
         with subtab4:
             st.subheader("⏳ Mandatory Biometric Update (MBU) Pending Analysis")
             if df_mbu is None:
-                st.warning(f"⚠️ '{MBU_FILE_PATH}' ఫైల్ GitHub లో ఇంకా లోడ్ కాలేదు. ఫైల్ అప్‌లోడ్ అయిందో లేదో తనిఖీ చేయండి.")
+                st.warning(f"⚠️ '{MBU_FILE_PATH}' file GitHub lo load kaaledhu. File upload aindo ledho chudandi.")
             else:
                 mbu_block_col = next((c for c in df_mbu.columns if 'BLOCK' in c.upper() or 'MANDAL' in c.upper()), None)
                 mbu_mgmt_col = 'Management_Display' if 'Management_Display' in df_mbu.columns else next((c for c in df_mbu.columns if 'MANAGE' in c.upper()), None)
@@ -672,7 +744,7 @@ with tab1:
                         with col_pb2:
                             render_print_button(pivot_mbu_with_total, report_title="MANDAL & MANAGEMENT-WISE MBU PENDING MATRIX", subtitle="West Godavari District")
                     else:
-                        st.info("Mandal లేదా Management కాలమ్స్ గుర్తించబడలేదు.")
+                        st.info("Mandal leda Management columns kanipinchaledhu.")
 
                 with mbu_view2:
                     st.markdown("##### 🔍 School-wise Pending Details by Mandal")
@@ -752,7 +824,7 @@ with tab2:
 with tab3:
     st.subheader("📊 Cadre Strength, Working & Vacancy Analysis")
     if df_cadre is None:
-        st.warning(f"⚠️ '{TEACHERS_FILE_PATH}' ఫైల్ లోడ్ కాలేదు. ఫైల్ అప్‌లోడ్ అయిందో లేదో తనిఖీ చేయండి.")
+        st.warning(f"⚠️ '{TEACHERS_FILE_PATH}' file load kaaledhu. File upload aindo ledho chudandi.")
     else:
         c_udise = next((c for c in df_cadre.columns if 'UDISE' in str(c).upper()), None)
         c_school = next((c for c in df_cadre.columns if any(k in str(c).upper() for k in ['HS/UPS_NAME', 'SCHOOL', 'NAME'])), None)
@@ -849,9 +921,9 @@ with tab3:
                     st.dataframe(p_df_with_total, use_container_width=True, hide_index=True)
                     render_print_button(p_df_with_total, report_title=f"{s_name} - CADRE BREAKUP", subtitle=f"UDISE: {c_row[c_udise]} | Mandal: {m_name}")
                 else:
-                    st.info("ఈ పాఠశాలకు సంబంధించిన పోస్టుల విభజన వివరాలు అందుబాటులో లేవు.")
+                    st.info("Ee paatasaalaku sambandhinchina post-wise vivaraalu levu.")
             else:
-                st.info("పాఠశాల వివరాలు చూడటానికి UDISE కోడ్ నమోదు చేయండి.")
+                st.info("Paatasaala vivaraalu chudadaniki UDISE code enter cheyandi.")
 
         with c_tab2:
             st.markdown("#### 📌 Mandal-wise & Cadre-wise Vacancy Matrix")
@@ -893,7 +965,7 @@ with tab3:
                 with col_vm2:
                     render_print_button(display_vac_with_total, report_title="MANDAL-WISE & CADRE-WISE VACANCY MATRIX", subtitle="West Godavari District")
             else:
-                st.info("ఖాళీల వివరాలు అందుబాటులో లేవు.")
+                st.info("Khaaleelu emee record kaledhu.")
 
         with c_tab3:
             st.markdown("#### 📑 Mandal-wise Cadre-wise Status (Sanctioned, Working, Vacant)")
@@ -1002,7 +1074,7 @@ with tab3:
                     with col_all2:
                         render_print_button(master_df_with_total.head(200), report_title="FULL DISTRICT CADRE MASTER REPORT", subtitle="All Mandals - Cadre Status")
             else:
-                st.info("కేడర్ వివరాలు అందుబాటులో లేవు.")
+                st.info("Cadre vivaraalu labhinchaledhu.")
 
 # ==========================================
 # ------------ TAB 4: MIS REPORTS ---------
