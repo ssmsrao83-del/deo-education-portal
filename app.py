@@ -281,7 +281,6 @@ with tab3:
                         clean = parts[-1].strip()
                     else:
                         clean = clean.replace(kw, '').strip(' -:')
-            
             clean = clean.replace('01.09.2026', '').strip(' -:')
             if clean.lower().startswith('gr ii hm') or clean.lower().startswith('gr-ii hm'):
                 return "Gr II HM"
@@ -293,8 +292,8 @@ with tab3:
 
         c_tab1, c_tab2, c_tab3 = st.tabs([
             "🔍 School Cadre Profile", 
-            "📌 Mandal & Cadre-wise Vacancies", 
-            "📑 Mandal Cadre Summary"
+            "📌 Mandal & Cadre Vacancies", 
+            "📑 Mandal Cadre Summary (S/W/V)"
         ])
 
         with c_tab1:
@@ -358,39 +357,31 @@ with tab3:
             else:
                 st.info("పాఠశాల వివరాలు చూడటానికి UDISE కోడ్ నమోదు చేయండి.")
 
-        # --- UPDATED SUBTAB 2: MANDAL-WISE CADRE-WISE VACANCIES ---
         with c_tab2:
             st.markdown("#### 📌 Mandal-wise & Cadre-wise Vacancy Matrix")
             if c_mandal and vac_cols:
-                # Ensure all vacancy columns are numeric
                 df_vac = df_cadre.copy()
                 col_rename_map = {}
                 for vc in vac_cols:
                     df_vac[vc] = pd.to_numeric(df_vac[vc], errors='coerce').fillna(0)
                     col_rename_map[vc] = normalize_cadre_name(vc)
                 
-                # Group by Mandal and sum vacancies for each cadre
                 mandal_cadre_vac = df_vac.groupby(c_mandal)[vac_cols].sum().reset_index()
                 mandal_cadre_vac = mandal_cadre_vac.rename(columns=col_rename_map)
                 mandal_cadre_vac = mandal_cadre_vac.rename(columns={c_mandal: 'Mandal'})
                 
-                # Calculate Total Vacancies per Mandal
                 cadre_cols_cleaned = [col_rename_map[vc] for vc in vac_cols]
                 mandal_cadre_vac['Total Vacancies'] = mandal_cadre_vac[cadre_cols_cleaned].sum(axis=1)
                 
-                # Optional Mandal Filter
                 all_mandals = sorted(mandal_cadre_vac['Mandal'].dropna().unique())
                 sel_m = st.multiselect("Filter by Mandal(s):", all_mandals, default=all_mandals, key="vac_mandal_filter")
                 
                 display_vac_df = mandal_cadre_vac[mandal_cadre_vac['Mandal'].isin(sel_m)] if sel_m else mandal_cadre_vac
-                
-                # Reorder columns: Mandal, Total Vacancies, followed by individual Cadres
                 cols_order = ['Mandal', 'Total Vacancies'] + [c for c in cadre_cols_cleaned if c != 'Total Vacancies']
                 display_vac_df = display_vac_df[cols_order]
                 
                 st.dataframe(display_vac_df, use_container_width=True, hide_index=True)
                 
-                # Excel Download
                 vac_matrix_buf = io.BytesIO()
                 with pd.ExcelWriter(vac_matrix_buf, engine='openpyxl') as writer:
                     display_vac_df.to_excel(writer, index=False, sheet_name='Mandal_Cadre_Vacancies')
@@ -400,45 +391,111 @@ with tab3:
                     file_name="Mandal_Cadre_Wise_Vacancies.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
-                
-                st.markdown("---")
-                st.markdown("##### 📊 Top Cadres with Highest District Vacancies")
-                cadre_totals = mandal_cadre_vac[cadre_cols_cleaned].sum().reset_index()
-                cadre_totals.columns = ['Cadre / Designation', 'Total District Vacancies']
-                cadre_totals = cadre_totals[cadre_totals['Total District Vacancies'] > 0].sort_values(by='Total District Vacancies', ascending=False)
-                
-                c_g1, c_g2 = st.columns([2, 3])
-                with c_g1:
-                    st.dataframe(cadre_totals, use_container_width=True, hide_index=True)
-                with c_g2:
-                    st.bar_chart(cadre_totals.set_index('Cadre / Designation'))
             else:
                 st.info("ఖాళీల వివరాలు అందుబాటులో లేవు.")
 
+        # --- UPDATED SUBTAB 3: MANDAL-WISE CADRE-WISE SANCTIONED / WORKING / VACANT ---
         with c_tab3:
-            st.markdown("#### 📑 Mandal-wise Cadre Abstract & Download")
-            if c_mandal and tot_sanc_col and tot_work_col and tot_vac_col:
-                for c in [tot_sanc_col, tot_work_col, tot_vac_col]:
-                    df_cadre[c] = pd.to_numeric(df_cadre[c], errors='coerce').fillna(0)
+            st.markdown("#### 📑 Mandal-wise Cadre-wise Status (Sanctioned, Working, Vacant)")
+            if c_mandal and sanc_cols:
+                # Ensure all relevant columns are numeric
+                df_cadre_work = df_cadre.copy()
+                for c in sanc_cols + work_cols + vac_cols:
+                    if c in df_cadre_work.columns:
+                        df_cadre_work[c] = pd.to_numeric(df_cadre_work[c], errors='coerce').fillna(0)
+
+                mandal_list_all = sorted(list(df_cadre_work[c_mandal].dropna().unique()))
+                selected_mandal = st.selectbox("Select Mandal to view detailed Cadre breakdown:", mandal_list_all, key="mandal_cadre_detailed_select")
+
+                # Generate detailed table for the selected Mandal
+                m_df = df_cadre_work[df_cadre_work[c_mandal] == selected_mandal]
                 
-                m_cadre = df_cadre.groupby(c_mandal).agg({
-                    c_udise: 'count',
-                    tot_sanc_col: 'sum',
-                    tot_work_col: 'sum',
-                    tot_vac_col: 'sum'
-                }).reset_index()
+                cadre_breakdown = []
+                for idx, sc in enumerate(sanc_cols):
+                    p_name = normalize_cadre_name(sc)
+                    wc = work_cols[idx] if idx < len(work_cols) else None
+                    vc = vac_cols[idx] if idx < len(vac_cols) else None
+
+                    if not wc or p_name.lower() not in normalize_cadre_name(wc).lower():
+                        wc = next((c for c in work_cols if p_name.lower() == normalize_cadre_name(c).lower()), wc)
+                    if not vc or p_name.lower() not in normalize_cadre_name(vc).lower():
+                        vc = next((c for c in vac_cols if p_name.lower() == normalize_cadre_name(vc).lower()), vc)
+
+                    s_sum = int(m_df[sc].sum()) if sc in m_df.columns else 0
+                    w_sum = int(m_df[wc].sum()) if wc and wc in m_df.columns else 0
+                    v_sum = int(m_df[vc].sum()) if vc and vc in m_df.columns else 0
+
+                    if s_sum > 0 or w_sum > 0 or v_sum > 0:
+                        cadre_breakdown.append({
+                            "Cadre / Designation": p_name,
+                            "Sanctioned Posts": s_sum,
+                            "Working Staff": w_sum,
+                            "Vacant Posts": v_sum
+                        })
+
+                if cadre_breakdown:
+                    cb_df = pd.DataFrame(cadre_breakdown)
+                    # Summary metrics for that mandal
+                    cm1, cm2, cm3 = st.columns(3)
+                    cm1.metric(f"Total Sanctioned ({selected_mandal})", cb_df["Sanctioned Posts"].sum())
+                    cm2.metric(f"Total Working ({selected_mandal})", cb_df["Working Staff"].sum())
+                    cm3.metric(f"Total Vacant ({selected_mandal})", cb_df["Vacant Posts"].sum())
+
+                    st.dataframe(cb_df, use_container_width=True, hide_index=True)
+
+                    # Excel download for single mandal
+                    s_buf = io.BytesIO()
+                    with pd.ExcelWriter(s_buf, engine='openpyxl') as writer:
+                        cb_df.to_excel(writer, index=False, sheet_name=str(selected_mandal)[:31])
+                    st.download_button(
+                        f"📥 Download {selected_mandal} Cadre Report (Excel)", 
+                        data=s_buf.getvalue(), 
+                        file_name=f"{selected_mandal}_Cadre_Breakdown.xlsx"
+                    )
+
+                st.markdown("---")
+                st.markdown("##### 🌐 Full District: Mandal-wise & Cadre-wise Master Table")
                 
-                m_cadre.columns = ['Mandal', 'Schools', 'Total Sanctioned', 'Total Working', 'Total Vacant']
-                st.dataframe(m_cadre, use_container_width=True)
-                
-                cadre_buf = io.BytesIO()
-                with pd.ExcelWriter(cadre_buf, engine='openpyxl') as writer:
-                    m_cadre.to_excel(writer, index=False, sheet_name='Cadre_Abstract')
-                st.download_button(
-                    "📥 Download Cadre Abstract Excel", 
-                    data=cadre_buf.getvalue(), 
-                    file_name="Mandal_Cadre_Abstract.xlsx"
-                )
+                # Build master long table for all mandals
+                master_records = []
+                for m_name_iter in mandal_list_all:
+                    sub_m = df_cadre_work[df_cadre_work[c_mandal] == m_name_iter]
+                    for idx, sc in enumerate(sanc_cols):
+                        p_name = normalize_cadre_name(sc)
+                        wc = work_cols[idx] if idx < len(work_cols) else None
+                        vc = vac_cols[idx] if idx < len(vac_cols) else None
+                        if not wc or p_name.lower() not in normalize_cadre_name(wc).lower():
+                            wc = next((c for c in work_cols if p_name.lower() == normalize_cadre_name(c).lower()), wc)
+                        if not vc or p_name.lower() not in normalize_cadre_name(vc).lower():
+                            vc = next((c for c in vac_cols if p_name.lower() == normalize_cadre_name(vc).lower()), vc)
+
+                        s_val = int(sub_m[sc].sum()) if sc in sub_m.columns else 0
+                        w_val = int(sub_m[wc].sum()) if wc and wc in sub_m.columns else 0
+                        v_val = int(sub_m[vc].sum()) if vc and vc in sub_m.columns else 0
+
+                        if s_val > 0 or w_val > 0 or v_val > 0:
+                            master_records.append({
+                                "Mandal": m_name_iter,
+                                "Cadre / Designation": p_name,
+                                "Sanctioned": s_val,
+                                "Working": w_val,
+                                "Vacant": v_val
+                            })
+
+                if master_records:
+                    master_df = pd.DataFrame(master_records)
+                    st.dataframe(master_df, use_container_width=True, hide_index=True)
+
+                    master_buf = io.BytesIO()
+                    with pd.ExcelWriter(master_buf, engine='openpyxl') as writer:
+                        master_df.to_excel(writer, index=False, sheet_name='Master_Cadre_Status')
+                    st.download_button(
+                        "📥 Download Full District Cadre-wise Master Excel", 
+                        data=master_buf.getvalue(), 
+                        file_name="All_Mandals_Cadre_Wise_Status.xlsx"
+                    )
+            else:
+                st.info("కేడర్ వివరాలు అందుబాటులో లేవు.")
 
 # ----------------- TAB 4: MIS REPORTS -----------------
 with tab4:
