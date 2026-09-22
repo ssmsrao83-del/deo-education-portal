@@ -313,7 +313,6 @@ with tab1:
         mgmt_col = 'Management_Display' if 'Management_Display' in df.columns else next((c for c in df.columns if 'MANAGE' in c.upper()), None)
         cat_col = 'Category_Display' if 'Category_Display' in df.columns else next((c for c in df.columns if 'CATEG' in c.upper()), None)
 
-        # Helper functions for Stage calculation
         def get_cols(classes, gender):
             res = []
             for c in df.columns:
@@ -339,31 +338,34 @@ with tab1:
 
         cat_series = df['Category_Code'] if 'Category_Code' in df.columns else pd.Series(0, index=df.index)
         
-        # Stages Calculation per school
+        # 1-5 Classes
         mask_1_5 = cat_series.isin([1, 2, 3, 6])
         df['P_1_5_B'] = np.where(mask_1_5, calc_sum(df, c1_5_b), 0)
         df['P_1_5_G'] = np.where(mask_1_5, calc_sum(df, c1_5_g), 0)
         df['P_1_5_T'] = df['P_1_5_B'] + df['P_1_5_G']
 
+        # 6-8 Classes (UP)
         mask_6_8_up = cat_series.isin([2])
         df['UP_6_8_B'] = np.where(mask_6_8_up, calc_sum(df, c6_8_b), 0)
         df['UP_6_8_G'] = np.where(mask_6_8_up, calc_sum(df, c6_8_g), 0)
         df['UP_6_8_T'] = df['UP_6_8_B'] + df['UP_6_8_G']
 
+        # 6-10 Classes (High School)
         mask_6_10_hs = cat_series.isin([3, 5, 6, 7])
         df['HS_6_10_B'] = np.where(mask_6_10_hs, calc_sum(df, c6_10_b), 0)
         df['HS_6_10_G'] = np.where(mask_6_10_hs, calc_sum(df, c6_10_g), 0)
         df['HS_6_10_T'] = df['HS_6_10_B'] + df['HS_6_10_G']
 
+        # 11-12 Classes (Colleges)
         mask_11_12 = cat_series.isin([11, 3, 5])
         df['COL_11_12_B'] = np.where(mask_11_12, calc_sum(df, c11_12_b), 0)
         df['COL_11_12_G'] = np.where(mask_11_12, calc_sum(df, c11_12_g), 0)
         df['COL_11_12_T'] = df['COL_11_12_B'] + df['COL_11_12_G']
 
-        # 4 SUB-TABS
+        # 4 CLEAR SUB-TABS (No Nesting)
         subtab1, subtab2, subtab3, subtab4 = st.tabs([
             "🔍 School 360° Search", 
-            "📊 Mandal-wise Stage & Management Abstract", 
+            "📊 Mandal-wise Abstract", 
             "📑 Custom Reports & Excel Export",
             "⏳ Mandatory Biometric (MBU) Pending"
         ])
@@ -437,15 +439,14 @@ with tab1:
                         with col_t2:
                             st.bar_chart(cdf.set_index("Class")[["Boys 👦", "Girls 👧"]])
                     else:
-                        st.info("ఈ పాఠశాలకు సంబంధించిన తరగతుల వివరాలు లభించలేదు.")
+                        st.info("Ee paatasaalaku sambandhinchina tharagathula vivaraalu labhinchaledhu.")
                 else:
-                    st.warning("ఈ UDISE కోడ్ తో రికార్డు కనబడలేదు.")
+                    st.warning("Ee UDISE code tho record kanabada ledhu.")
 
-        # --- SUBTAB 2: MANDAL-WISE STAGE & MANAGEMENT ABSTRACT ---
+        # --- SUBTAB 2: MANDAL-WISE ABSTRACT (MERGED MANAGEMENT & STAGE-WISE) ---
         with subtab2:
-            st.subheader("📊 Mandal-wise Stage & Management-wise Enrolment Abstract")
+            st.subheader("📊 Mandal-wise Stage & Management Enrolment Abstract")
 
-            # Clean real mandals
             df_clean = df[~df[block_col].astype(str).str.match(r'^\(?\d+\)?$|^nan$', case=False)].copy()
             df_clean = df_clean[df_clean[block_col].astype(str).str.len() > 2]
 
@@ -502,7 +503,6 @@ with tab1:
                     render_print_button(res_df_total, report_title="MANDAL-WISE MANAGEMENT COMPARATIVE ABSTRACT", subtitle="Govt vs Aided vs Private")
 
             else:
-                # Filter by Management if specific one is selected
                 if mgmt_choice == "STATE GOVT Only":
                     df_target = df_clean[df_clean['Merged_Management'] == 'STATE GOVT']
                     label_sub = "STATE GOVT"
