@@ -47,10 +47,32 @@ def clean_and_map(val, mapping_dict):
     except:
         return str(val)
 
+def append_total_row(df_in, label_col, total_label="TOTAL"):
+    """Appends a bold Total summary row to any numeric dataframe"""
+    if df_in.empty:
+        return df_in
+    df_calc = df_in.copy()
+    total_dict = {}
+    for col in df_calc.columns:
+        if col == label_col:
+            total_dict[col] = total_label
+        elif pd.api.types.is_numeric_dtype(df_calc[col]):
+            total_dict[col] = df_calc[col].sum()
+        else:
+            try:
+                # Try numeric conversion if values are strings/numbers
+                num_s = pd.to_numeric(df_calc[col], errors='coerce')
+                if num_s.notnull().any():
+                    total_dict[col] = int(num_s.fillna(0).sum())
+                else:
+                    total_dict[col] = ""
+            except:
+                total_dict[col] = ""
+    return pd.concat([df_calc, pd.DataFrame([total_dict])], ignore_index=True)
+
 def render_print_button(dataframe, report_title="DEO REPORT", subtitle="West Godavari District"):
     """Opens a clean new print preview window containing the full table with headers"""
     html_table = dataframe.to_html(index=False, classes='print-table')
-    # Clean up single/double quotes to avoid JS syntax errors
     html_table_escaped = html_table.replace("`", "'").replace("\\", "\\\\")
 
     html_code = f"""
@@ -81,7 +103,7 @@ def render_print_button(dataframe, report_title="DEO REPORT", subtitle="West God
       <script>
       function printReport() {{
           var tableHtml = `{html_table_escaped}`;
-          var printWin = window.open('', '', 'width=900,height=650');
+          var printWin = window.open('', '', 'width=950,height=700');
           printWin.document.write(`
             <html>
             <head>
@@ -133,6 +155,11 @@ def render_print_button(dataframe, report_title="DEO REPORT", subtitle="West God
                 .print-table tr:nth-child(even) {{
                     background-color: #fafafa;
                     -webkit-print-color-adjust: exact;
+                }}
+                .print-table tr:last-child {{
+                    font-weight: bold;
+                    background-color: #eaeaea !important;
+                    border-top: 2px solid #222;
                 }}
                 @media print {{
                     body {{ margin: 10mm; }}
@@ -217,7 +244,9 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "📄 CSE MIS Reports"
 ])
 
-# ----------------- TAB 1: UDISE -----------------
+# ==========================================
+# ------------ TAB 1: UDISE ---------------
+# ==========================================
 with tab1:
     if df is None:
         st.error(f"⚠️ File dorakaledhu: {EXCEL_FILE_PATH}")
@@ -311,10 +340,12 @@ with tab1:
 
                     if class_data:
                         cdf = pd.DataFrame(class_data)
+                        cdf_with_total = append_total_row(cdf, label_col="Class", total_label="TOTAL")
+                        
                         col_t1, col_t2 = st.columns([3, 2])
                         with col_t1:
-                            st.dataframe(cdf, use_container_width=True, hide_index=True)
-                            render_print_button(cdf, report_title=f"{school_name} - CLASS-WISE ENROLMENT", subtitle=f"UDISE: {row[udise_col]} | Mandal: {mandal_name}")
+                            st.dataframe(cdf_with_total, use_container_width=True, hide_index=True)
+                            render_print_button(cdf_with_total, report_title=f"{school_name} - CLASS-WISE ENROLMENT", subtitle=f"UDISE: {row[udise_col]} | Mandal: {mandal_name}")
                         with col_t2:
                             st.bar_chart(cdf.set_index("Class")[["Boys 👦", "Girls 👧"]])
                     else:
@@ -337,16 +368,19 @@ with tab1:
                 mandal_summary = df.groupby(block_col).agg(agg_dict).reset_index()
                 mandal_summary = mandal_summary.rename(columns={block_col: 'Mandal (Block)'})
                 mandal_summary = mandal_summary.rename(columns=rename_cols)
-                st.dataframe(mandal_summary, use_container_width=True)
+                
+                # Append District Total Row
+                mandal_summary_with_total = append_total_row(mandal_summary, label_col='Mandal (Block)', total_label='DISTRICT TOTAL')
+                st.dataframe(mandal_summary_with_total, use_container_width=True, hide_index=True)
                 
                 col_btn1, col_btn2 = st.columns([1, 1])
                 with col_btn1:
                     m_buf = io.BytesIO()
                     with pd.ExcelWriter(m_buf, engine='openpyxl') as writer:
-                        mandal_summary.to_excel(writer, index=False, sheet_name='Mandal_Abstract')
+                        mandal_summary_with_total.to_excel(writer, index=False, sheet_name='Mandal_Abstract')
                     st.download_button("📥 Download Mandal Abstract as Excel", data=m_buf.getvalue(), file_name="Mandal_Wise_Abstract.xlsx", use_container_width=True)
                 with col_btn2:
-                    render_print_button(mandal_summary, report_title="MANDAL-WISE ENROLMENT ABSTRACT", subtitle="West Godavari District")
+                    render_print_button(mandal_summary_with_total, report_title="MANDAL-WISE ENROLMENT ABSTRACT", subtitle="West Godavari District")
 
         with subtab3:
             st.subheader("📑 Custom Reports & Excel Export")
@@ -376,11 +410,15 @@ with tab1:
             with col_cf2:
                 render_print_button(filtered_df.head(100), report_title="CUSTOM UDISE REPORT", subtitle=f"Total Schools: {len(filtered_df)}")
 
-# ----------------- TAB 2: TEACHERS -----------------
+# ==========================================
+# ------------ TAB 2: TEACHERS ------------
+# ==========================================
 with tab2:
     st.info("🧑‍🏫 Teachers Directory & Retirement Tracker - Module Coming Soon")
 
-# ----------------- TAB 3: CADRE & VACANCY ----------
+# ==========================================
+# ------------ TAB 3: CADRE & VACANCY -----
+# ==========================================
 with tab3:
     st.subheader("📊 Cadre Strength, Working & Vacancy Analysis")
     if df_cadre is None:
@@ -477,8 +515,9 @@ with tab3:
                 
                 if post_list:
                     p_df = pd.DataFrame(post_list)
-                    st.dataframe(p_df, use_container_width=True, hide_index=True)
-                    render_print_button(p_df, report_title=f"{s_name} - CADRE BREAKUP", subtitle=f"Mandal: {m_name}")
+                    p_df_with_total = append_total_row(p_df, label_col="Designation / Cadre", total_label="TOTAL")
+                    st.dataframe(p_df_with_total, use_container_width=True, hide_index=True)
+                    render_print_button(p_df_with_total, report_title=f"{s_name} - CADRE BREAKUP", subtitle=f"UDISE: {c_row[c_udise]} | Mandal: {m_name}")
                 else:
                     st.info("ఈ పాఠశాలకు సంబంధించిన పోస్టుల విభజన వివరాలు అందుబాటులో లేవు.")
             else:
@@ -507,13 +546,15 @@ with tab3:
                 cols_order = ['Mandal', 'Total Vacancies'] + [c for c in cadre_cols_cleaned if c != 'Total Vacancies']
                 display_vac_df = display_vac_df[cols_order]
                 
-                st.dataframe(display_vac_df, use_container_width=True, hide_index=True)
+                # Append District Total row
+                display_vac_with_total = append_total_row(display_vac_df, label_col='Mandal', total_label='DISTRICT TOTAL')
+                st.dataframe(display_vac_with_total, use_container_width=True, hide_index=True)
                 
                 col_vm1, col_vm2 = st.columns([1, 1])
                 with col_vm1:
                     vac_matrix_buf = io.BytesIO()
                     with pd.ExcelWriter(vac_matrix_buf, engine='openpyxl') as writer:
-                        display_vac_df.to_excel(writer, index=False, sheet_name='Mandal_Cadre_Vacancies')
+                        display_vac_with_total.to_excel(writer, index=False, sheet_name='Mandal_Cadre_Vacancies')
                     st.download_button(
                         "📥 Download Vacancy Matrix as Excel", 
                         data=vac_matrix_buf.getvalue(), 
@@ -521,7 +562,7 @@ with tab3:
                         use_container_width=True
                     )
                 with col_vm2:
-                    render_print_button(display_vac_df, report_title="MANDAL-WISE & CADRE-WISE VACANCY MATRIX", subtitle="West Godavari District")
+                    render_print_button(display_vac_with_total, report_title="MANDAL-WISE & CADRE-WISE VACANCY MATRIX", subtitle="West Godavari District")
             else:
                 st.info("ఖాళీల వివరాలు అందుబాటులో లేవు.")
 
@@ -568,13 +609,14 @@ with tab3:
                     cm2.metric(f"Total Working ({selected_mandal})", cb_df["Working Staff"].sum())
                     cm3.metric(f"Total Vacant ({selected_mandal})", cb_df["Vacant Posts"].sum())
 
-                    st.dataframe(cb_df, use_container_width=True, hide_index=True)
+                    cb_df_with_total = append_total_row(cb_df, label_col="Cadre / Designation", total_label="TOTAL")
+                    st.dataframe(cb_df_with_total, use_container_width=True, hide_index=True)
 
                     col_mb1, col_mb2 = st.columns([1, 1])
                     with col_mb1:
                         s_buf = io.BytesIO()
                         with pd.ExcelWriter(s_buf, engine='openpyxl') as writer:
-                            cb_df.to_excel(writer, index=False, sheet_name=str(selected_mandal)[:31])
+                            cb_df_with_total.to_excel(writer, index=False, sheet_name=str(selected_mandal)[:31])
                         st.download_button(
                             f"📥 Download {selected_mandal} Cadre Report (Excel)", 
                             data=s_buf.getvalue(), 
@@ -582,7 +624,7 @@ with tab3:
                             use_container_width=True
                         )
                     with col_mb2:
-                        render_print_button(cb_df, report_title=f"{selected_mandal} MANDAL - CADRE STRENGTH & VACANCY", subtitle="Sanctioned vs Working vs Vacant")
+                        render_print_button(cb_df_with_total, report_title=f"{selected_mandal} MANDAL - CADRE STRENGTH & VACANCY", subtitle="Sanctioned vs Working vs Vacant")
 
                 st.markdown("---")
                 st.markdown("##### 🌐 Full District: Mandal-wise & Cadre-wise Master Table")
@@ -614,13 +656,14 @@ with tab3:
 
                 if master_records:
                     master_df = pd.DataFrame(master_records)
-                    st.dataframe(master_df, use_container_width=True, hide_index=True)
+                    master_df_with_total = append_total_row(master_df, label_col="Mandal", total_label="DISTRICT TOTAL")
+                    st.dataframe(master_df_with_total, use_container_width=True, hide_index=True)
 
                     col_all1, col_all2 = st.columns([1, 1])
                     with col_all1:
                         master_buf = io.BytesIO()
                         with pd.ExcelWriter(master_buf, engine='openpyxl') as writer:
-                            master_df.to_excel(writer, index=False, sheet_name='Master_Cadre_Status')
+                            master_df_with_total.to_excel(writer, index=False, sheet_name='Master_Cadre_Status')
                         st.download_button(
                             "📥 Download Full District Cadre-wise Master Excel", 
                             data=master_buf.getvalue(), 
@@ -628,10 +671,12 @@ with tab3:
                             use_container_width=True
                         )
                     with col_all2:
-                        render_print_button(master_df.head(150), report_title="FULL DISTRICT CADRE MASTER REPORT", subtitle="All Mandals - Cadre Status")
+                        render_print_button(master_df_with_total.head(200), report_title="FULL DISTRICT CADRE MASTER REPORT", subtitle="All Mandals - Cadre Status")
             else:
                 st.info("కేడర్ వివరాలు అందుబాటులో లేవు.")
 
-# ----------------- TAB 4: MIS REPORTS -------------
+# ==========================================
+# ------------ TAB 4: MIS REPORTS ---------
+# ==========================================
 with tab4:
     st.info("📄 CSE MIS Reports - Module Coming Soon")
