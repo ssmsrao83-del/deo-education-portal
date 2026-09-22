@@ -115,23 +115,23 @@ def render_print_button(dataframe, report_title="DEO REPORT", subtitle="West God
       <script>
       function printReport() {{
           var tableHtml = `{html_table_escaped}`;
-          var printWin = window.open('', '', 'width=1100,height=750');
+          var printWin = window.open('', '', 'width=1150,height=750');
           printWin.document.write(`
             <html>
             <head>
               <title>{report_title}</title>
               <style>
-                body {{ font-family: Arial, sans-serif; margin: 20px; color: #000; }}
-                .header-area {{ text-align: center; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 15px; }}
-                .header-area h2 {{ margin: 0; font-size: 17px; color: #1a237e; text-transform: uppercase; }}
-                .header-area h3 {{ margin: 4px 0; font-size: 14px; color: #333; }}
-                .header-area p {{ margin: 3px 0 0 0; font-size: 12px; color: #555; font-weight: bold; }}
-                .print-table {{ width: 100%; border-collapse: collapse; font-size: 11px; }}
-                .print-table th, .print-table td {{ border: 1px solid #444; padding: 5px 6px; text-align: center; }}
+                body {{ font-family: Arial, sans-serif; margin: 15px; color: #000; }}
+                .header-area {{ text-align: center; border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 12px; }}
+                .header-area h2 {{ margin: 0; font-size: 16px; color: #1a237e; text-transform: uppercase; }}
+                .header-area h3 {{ margin: 3px 0; font-size: 13px; color: #333; }}
+                .header-area p {{ margin: 2px 0 0 0; font-size: 11px; color: #555; font-weight: bold; }}
+                .print-table {{ width: 100%; border-collapse: collapse; font-size: 10px; }}
+                .print-table th, .print-table td {{ border: 1px solid #444; padding: 4px 5px; text-align: center; }}
                 .print-table th {{ background-color: #f2f2f2 !important; font-weight: bold; -webkit-print-color-adjust: exact; }}
                 .print-table tr:nth-child(even) {{ background-color: #fafafa; -webkit-print-color-adjust: exact; }}
                 .print-table tr:last-child {{ font-weight: bold; background-color: #eaeaea !important; border-top: 2px solid #222; }}
-                @media print {{ body {{ margin: 10mm; }} }}
+                @media print {{ body {{ margin: 8mm; }} }}
               </style>
             </head>
             <body>
@@ -393,54 +393,60 @@ with tab1:
                 else:
                     st.warning("ఈ UDISE కోడ్ తో రికార్డు కనబడలేదు.")
 
-        # --- SUBTAB 2: MANDAL-WISE ABSTRACT (MERGED MANAGEMENT INTEGRATED) ---
+        # --- SUBTAB 2: MANDAL-WISE ABSTRACT (MERGED MANAGEMENT WITH BOYS/GIRLS BREAKDOWN) ---
         with subtab2:
             st.subheader("📊 Mandal-wise Enrolment Abstract")
 
             view_type = st.radio(
                 "Select Abstract Format:", 
-                ["🏢 General Abstract (Merged Management-wise)", "📋 Stage-wise Detailed Abstract (1-5, 6-8 UP, 6-10 HS, 11-12 Col)"], 
+                ["🏢 General Abstract (Merged Management with Boys & Girls)", "📋 Stage-wise Detailed Abstract (1-5, 6-8 UP, 6-10 HS, 11-12 Col)"], 
                 horizontal=True
             )
 
-            if "Merged Management-wise" in view_type:
-                # Merged Management Filter
+            if "Merged Management" in view_type:
                 mgmt_filter = st.selectbox(
                     "Select Management View:", 
                     ["ALL MANAGEMENTS (Comparative Matrix)", "STATE GOVT Only", "AIDED Only", "PRIVATE Only"]
                 )
 
                 df_calc = df.copy()
-                # Clean real mandals
                 df_calc = df_calc[~df_calc[block_col].astype(str).str.match(r'^\(?\d+\)?$|^nan$', case=False)]
                 df_calc = df_calc[df_calc[block_col].astype(str).str.len() > 2]
 
                 if mgmt_filter == "ALL MANAGEMENTS (Comparative Matrix)":
-                    # Matrix with Govt, Aided, Private breakdowns
-                    m_piv_schools = df_calc.pivot_table(index=block_col, columns='Merged_Management', values=udise_col, aggfunc='count', fill_value=0)
-                    m_piv_roll = df_calc.pivot_table(index=block_col, columns='Merged_Management', values=tot_col, aggfunc='sum', fill_value=0)
+                    piv_s = df_calc.pivot_table(index=block_col, columns='Merged_Management', values=udise_col, aggfunc='count', fill_value=0)
+                    piv_b = df_calc.pivot_table(index=block_col, columns='Merged_Management', values=boys_col, aggfunc='sum', fill_value=0)
+                    piv_g = df_calc.pivot_table(index=block_col, columns='Merged_Management', values=girls_col, aggfunc='sum', fill_value=0)
+                    piv_r = df_calc.pivot_table(index=block_col, columns='Merged_Management', values=tot_col, aggfunc='sum', fill_value=0)
 
                     records = []
                     for m_name in sorted(df_calc[block_col].unique()):
-                        sg_s = m_piv_schools.loc[m_name, 'STATE GOVT'] if 'STATE GOVT' in m_piv_schools.columns and m_name in m_piv_schools.index else 0
-                        sg_r = m_piv_roll.loc[m_name, 'STATE GOVT'] if 'STATE GOVT' in m_piv_roll.columns and m_name in m_piv_roll.index else 0
-                        
-                        ai_s = m_piv_schools.loc[m_name, 'AIDED'] if 'AIDED' in m_piv_schools.columns and m_name in m_piv_schools.index else 0
-                        ai_r = m_piv_roll.loc[m_name, 'AIDED'] if 'AIDED' in m_piv_roll.columns and m_name in m_piv_roll.index else 0
-                        
-                        pr_s = m_piv_schools.loc[m_name, 'PRIVATE'] if 'PRIVATE' in m_piv_schools.columns and m_name in m_piv_schools.index else 0
-                        pr_r = m_piv_roll.loc[m_name, 'PRIVATE'] if 'PRIVATE' in m_piv_roll.columns and m_name in m_piv_roll.index else 0
-                        
+                        sg_s = int(piv_s.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_s.columns and m_name in piv_s.index else 0
+                        sg_b = int(piv_b.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_b.columns and m_name in piv_b.index else 0
+                        sg_g = int(piv_g.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_g.columns and m_name in piv_g.index else 0
+                        sg_r = int(piv_r.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_r.columns and m_name in piv_r.index else 0
+
+                        ai_s = int(piv_s.loc[m_name, 'AIDED']) if 'AIDED' in piv_s.columns and m_name in piv_s.index else 0
+                        ai_b = int(piv_b.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_b.index else 0
+                        ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_g.columns and m_name in piv_g.index else 0
+                        ai_r = int(piv_r.loc[m_name, 'AIDED']) if 'AIDED' in piv_r.columns and m_name in piv_r.index else 0
+
+                        pr_s = int(piv_s.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_s.columns and m_name in piv_s.index else 0
+                        pr_b = int(piv_b.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_b.index else 0
+                        pr_g = int(piv_g.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_g.columns and m_name in piv_g.index else 0
+                        pr_r = int(piv_r.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_r.columns and m_name in piv_r.index else 0
+
+                        tot_s = sg_s + ai_s + pr_s
+                        tot_b = sg_b + ai_b + pr_b
+                        tot_g = sg_g + ai_g + pr_g
+                        tot_r = sg_r + ai_r + pr_r
+
                         records.append({
                             "Mandal (Block)": m_name,
-                            "State Govt Schools": int(sg_s),
-                            "State Govt Roll": int(sg_r),
-                            "Aided Schools": int(ai_s),
-                            "Aided Roll": int(ai_r),
-                            "Private Schools": int(pr_s),
-                            "Private Roll": int(pr_r),
-                            "Grand Total Schools": int(sg_s + ai_s + pr_s),
-                            "Grand Total Roll": int(sg_r + ai_r + pr_r)
+                            "Govt Sch": sg_s, "Govt Boys": sg_b, "Govt Girls": sg_g, "Govt Total": sg_r,
+                            "Aided Sch": ai_s, "Aided Boys": ai_b, "Aided Girls": ai_g, "Aided Total": ai_r,
+                            "Pvt Sch": pr_s, "Pvt Boys": pr_b, "Pvt Girls": pr_g, "Pvt Total": pr_r,
+                            "Total Sch": tot_s, "Grand Total Boys": tot_b, "Grand Total Girls": tot_g, "Grand Total Roll": tot_r
                         })
 
                     res_df = pd.DataFrame(records)
@@ -454,7 +460,7 @@ with tab1:
                             res_df_total.to_excel(writer, index=False, sheet_name='Merged_Mgmt_Abstract')
                         st.download_button("📥 Download Merged Management Abstract (Excel)", data=m_buf.getvalue(), file_name="Mandal_Merged_Management_Abstract.xlsx", use_container_width=True)
                     with col_btn2:
-                        render_print_button(res_df_total, report_title="MANDAL-WISE MERGED MANAGEMENT ABSTRACT", subtitle="State Govt | Aided | Private Comparison")
+                        render_print_button(res_df_total, report_title="MANDAL-WISE MERGED MANAGEMENT ABSTRACT", subtitle="State Govt | Aided | Private with Boys & Girls")
 
                 else:
                     target_mgmt = mgmt_filter.replace(" Only", "").strip()
@@ -462,12 +468,12 @@ with tab1:
                     
                     m_grp = df_sub.groupby(block_col).agg({
                         udise_col: 'count',
-                        tot_col: 'sum',
                         boys_col: 'sum',
-                        girls_col: 'sum'
+                        girls_col: 'sum',
+                        tot_col: 'sum'
                     }).reset_index()
 
-                    m_grp.columns = ['Mandal (Block)', 'Schools', 'Total Enrolment', 'Boys', 'Girls']
+                    m_grp.columns = ['Mandal (Block)', 'Schools', 'Total Boys', 'Total Girls', 'Grand Total Enrolment']
                     m_grp_total = append_total_row(m_grp, label_col="Mandal (Block)", total_label="DISTRICT TOTAL")
                     st.dataframe(m_grp_total, use_container_width=True, hide_index=True)
 
@@ -478,10 +484,9 @@ with tab1:
                             m_grp_total.to_excel(writer, index=False, sheet_name=target_mgmt[:31])
                         st.download_button(f"📥 Download {target_mgmt} Abstract (Excel)", data=m_buf.getvalue(), file_name=f"Mandal_{target_mgmt}_Abstract.xlsx", use_container_width=True)
                     with col_btn2:
-                        render_print_button(m_grp_total, report_title=f"MANDAL-WISE ABSTRACT - {target_mgmt}", subtitle="Schools, Enrolment, Boys & Girls")
+                        render_print_button(m_grp_total, report_title=f"MANDAL-WISE ABSTRACT - {target_mgmt}", subtitle="Schools, Boys, Girls & Total Enrolment")
 
             else:
-                # Stage-wise Detailed View
                 def get_cols(classes, gender):
                     res = []
                     for c in df.columns:
