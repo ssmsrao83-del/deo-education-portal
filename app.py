@@ -51,8 +51,9 @@ def load_udise_data(file_path):
         return None
     try:
         df = pd.read_excel(file_path)
-        df.columns = [c.strip() for c in df.columns]
+        df.columns = [str(c).strip() for c in df.columns]
         
+        # Exact column mapping from AP UDISE Sheet
         for col in df.columns:
             if 'MANAGE' in col.upper():
                 df['Management_Display'] = df[col].apply(lambda x: clean_and_map(x, MANAGEMENT_MAPPING))
@@ -76,22 +77,44 @@ with tab1:
     if df is None:
         st.error(f"⚠️ File dorakaledhu: {EXCEL_FILE_PATH}")
     else:
-        # 3 Sub-tabs include chesam: School 360, Mandal Abstract, Custom Reports
+        # Detect Exact Column Names
+        udise_col = next((c for c in df.columns if c.upper() == 'UDISE CODE' or 'UDISE' in c.upper()), None)
+        school_col = next((c for c in df.columns if c.upper() == 'SCHOOL NAME'), None)
+        block_col = next((c for c in df.columns if 'BLOCK NAME' in c.upper() or 'MANDAL' in c.upper()), None)
+        
+        # Enrolment Totals (Find Grand Total or fallback to calculated columns)
+        tot_col = next((c for c in df.columns if c.upper() in ['GRAND TOTAL', 'TOTAL ENROLMENT', 'TOTAL ROLL', 'TOTAL']), None)
+        boys_col = next((c for c in df.columns if c.upper() in ['TOTAL BOYS', 'BOYS TOTAL', 'BOYS']), None)
+        girls_col = next((c for c in df.columns if c.upper() in ['TOTAL GIRLS', 'GIRLS TOTAL', 'GIRLS']), None)
+        
+        # Fallback if grand total column name is different: sum up any Total columns
+        if not tot_col:
+            candidate_totals = [c for c in df.columns if 'TOTAL' in c.upper() and '(' not in c]
+            if candidate_totals:
+                tot_col = candidate_totals[-1]
+            else:
+                # Sum class totals if explicit total column isn't found
+                class_totals = [c for c in df.columns if '(TOTAL)' in c.upper().replace(' ', '')]
+                if class_totals:
+                    df['Calculated_Grand_Total'] = df[class_totals].apply(pd.to_numeric, errors='coerce').fillna(0).sum(axis=1)
+                    tot_col = 'Calculated_Grand_Total'
+
+        # Ensure numeric for total calculations
+        if tot_col:
+            df[tot_col] = pd.to_numeric(df[tot_col], errors='coerce').fillna(0)
+        if boys_col:
+            df[boys_col] = pd.to_numeric(df[boys_col], errors='coerce').fillna(0)
+        if girls_col:
+            df[girls_col] = pd.to_numeric(df[girls_col], errors='coerce').fillna(0)
+
+        mgmt_col = 'Management_Display' if 'Management_Display' in df.columns else next((c for c in df.columns if 'MANAGE' in c.upper()), None)
+        cat_col = 'Category_Display' if 'Category_Display' in df.columns else next((c for c in df.columns if 'CATEG' in c.upper()), None)
+
         subtab1, subtab2, subtab3 = st.tabs([
             "🔍 School 360° Search", 
             "📊 Mandal-wise Abstract", 
             "📑 Custom Reports & Excel Export"
         ])
-        
-        udise_col = next((c for c in df.columns if 'UDISE' in c.upper()), None)
-        school_col = next((c for c in df.columns if 'SCHOOL' in c.upper() or 'NAME' in c.upper()), None)
-        mandal_col = next((c for c in df.columns if 'MANDAL' in c.upper()), None)
-        tot_col = next((c for c in df.columns if 'TOTAL' in c.upper() or 'GRAND' in c.upper() or 'ROLL' in c.upper()), None)
-        boys_col = next((c for c in df.columns if 'BOY' in c.upper()), None)
-        girls_col = next((c for c in df.columns if 'GIRL' in c.upper()), None)
-        
-        mgmt_col = 'Management_Display' if 'Management_Display' in df.columns else next((c for c in df.columns if 'MANAGE' in c.upper()), None)
-        cat_col = 'Category_Display' if 'Category_Display' in df.columns else next((c for c in df.columns if 'CATEG' in c.upper()), None)
 
         with subtab1:
             st.subheader("🏫 Individual School 360° Profile")
@@ -107,34 +130,27 @@ with tab1:
                 matched = df[df[udise_col].astype(str).str.contains(str(search_code).strip(), na=False)]
                 if not matched.empty:
                     row = matched.iloc[0]
-                    school_name = row[school_col] if school_col else "School Name Not Available"
-                    mandal_name = row[mandal_col] if mandal_col else "N/A"
+                    school_name = row[school_col] if school_col else "School Name"
+                    mandal_name = row[block_col] if block_col else "N/A"
                     mgmt_val = row[mgmt_col] if mgmt_col else "N/A"
                     cat_val = row[cat_col] if cat_col else "N/A"
                     
                     st.success(f"### 🏫 {school_name}")
-                    st.info(f"**UDISE:** {row[udise_col]} | **Mandal:** {mandal_name} | **Management:** {mgmt_val} | **Category:** {cat_val}")
+                    st.info(f"**UDISE:** {row[udise_col]} | **Mandal (Block):** {mandal_name} | **Management:** {mgmt_val} | **Category:** {cat_val}")
                     
                     m1, m2, m3 = st.columns(3)
-                    tot_val = row[tot_col] if tot_col else "N/A"
-                    b_val = row[boys_col] if boys_col else "N/A"
-                    g_val = row[girls_col] if girls_col else "N/A"
-                    m1.metric("Grand Total Enrolment", tot_val)
-                    m2.metric("Total Boys 👦", b_val)
-                    m3.metric("Total Girls 👧", g_val)
+                    tot_val = int(row[tot_col]) if tot_col else "N/A"
+                    b_val = int(row[boys_col]) if boys_col else "N/A"
+                    g_val = int(row[girls_col]) if girls_col else "N/A"
+                    m1.metric("Grand Total Enrolment", f"{tot_val:,}" if isinstance(tot_val, int) else tot_val)
+                    m2.metric("Total Boys 👦", f"{b_val:,}" if isinstance(b_val, int) else b_val)
+                    m3.metric("Total Girls 👧", f"{g_val:,}" if isinstance(g_val, int) else g_val)
                 else:
-                    st.warning("Ee UDISE code tho record kanabada ledhu.")
+                    st.warning("ఈ UDISE కోడ్ తో రికార్డు కనబడలేదు.")
 
         with subtab2:
             st.subheader("📊 Mandal-wise Enrolment Abstract")
-            if mandal_col and tot_col:
-                # Numeric conversions
-                df[tot_col] = pd.to_numeric(df[tot_col], errors='coerce').fillna(0)
-                if boys_col:
-                    df[boys_col] = pd.to_numeric(df[boys_col], errors='coerce').fillna(0)
-                if girls_col:
-                    df[girls_col] = pd.to_numeric(df[girls_col], errors='coerce').fillna(0)
-                
+            if block_col and tot_col:
                 agg_dict = {udise_col: 'count', tot_col: 'sum'}
                 rename_cols = {udise_col: 'Total Schools', tot_col: 'Total Enrolment'}
                 
@@ -145,12 +161,12 @@ with tab1:
                     agg_dict[girls_col] = 'sum'
                     rename_cols[girls_col] = 'Total Girls'
                 
-                mandal_summary = df.groupby(mandal_col).agg(agg_dict).reset_index()
+                mandal_summary = df.groupby(block_col).agg(agg_dict).reset_index()
+                mandal_summary = mandal_summary.rename(columns={block_col: 'Mandal (Block)'})
                 mandal_summary = mandal_summary.rename(columns=rename_cols)
                 
                 st.dataframe(mandal_summary, use_container_width=True)
                 
-                # Excel export for mandal summary
                 m_buf = io.BytesIO()
                 with pd.ExcelWriter(m_buf, engine='openpyxl') as writer:
                     mandal_summary.to_excel(writer, index=False, sheet_name='Mandal_Abstract')
@@ -161,25 +177,25 @@ with tab1:
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
             else:
-                st.warning("Mandal leda Total Enrolment column gurthimpabadaledhu.")
+                st.warning("Block Name లేదా Total Enrolment కాలమ్ గుర్తించబడలేదు.")
 
         with subtab3:
             st.subheader("📑 Custom Reports & Excel Export")
             f1, f2 = st.columns(2)
             with f1:
-                mandal_list = sorted(list(df[mandal_col].dropna().unique())) if mandal_col else []
+                mandal_list = sorted(list(df[block_col].dropna().unique())) if block_col else []
                 sel_mandals = st.multiselect("Select Mandal(s):", mandal_list, default=mandal_list)
             with f2:
                 mgmt_list = sorted(list(df[mgmt_col].dropna().unique())) if mgmt_col else []
                 sel_mgmt = st.multiselect("Select Management:", mgmt_list, default=mgmt_list)
 
             filtered_df = df.copy()
-            if mandal_col and sel_mandals:
-                filtered_df = filtered_df[filtered_df[mandal_col].isin(sel_mandals)]
+            if block_col and sel_mandals:
+                filtered_df = filtered_df[filtered_df[block_col].isin(sel_mandals)]
             if mgmt_col and sel_mgmt:
                 filtered_df = filtered_df[filtered_df[mgmt_col].isin(sel_mgmt)]
 
-            st.write(f"Moththam Paatasaalalu: **{len(filtered_df)}**")
+            st.write(f"మొత్తం పాఠశాలలు: **{len(filtered_df)}**")
             st.dataframe(filtered_df, use_container_width=True)
 
             buffer = io.BytesIO()
