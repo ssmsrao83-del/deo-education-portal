@@ -393,7 +393,6 @@ with tab1:
         with subtab1:
             st.subheader("🏫 Individual School 360° Profile")
             
-            # --- DISTRICT SUMMARY CARDS ---
             d_s1, d_s2, d_s3, d_s4 = st.columns(4)
             d_s1.metric("District Total Schools 🏫", f"{len(df):,}")
             d_s2.metric("Total District Roll 👥", f"{int(df[tot_col].sum()):,}")
@@ -479,7 +478,6 @@ with tab1:
             df_clean = df[~df[block_col].astype(str).str.match(r'^\(?\d+\)?$|^nan$', case=False)].copy()
             df_clean = df_clean[df_clean[block_col].astype(str).str.len() > 2]
 
-            # --- DISTRICT SUMMARY CARDS FOR STAGES ---
             ds_1, ds_2, ds_3, ds_4, ds_5 = st.columns(5)
             ds_1.metric("PP (1-3) Enrolment", f"{int(df_clean['PP_T'].sum()):,}")
             ds_2.metric("Class 1-5 Enrolment", f"{int(df_clean['P_1_5_T'].sum()):,}")
@@ -493,7 +491,6 @@ with tab1:
                 ["ALL MANAGEMENTS (Total District)", "STATE GOVT Only", "AIDED Only", "PRIVATE Only", "COMPARATIVE VIEW (Govt vs Aided vs Pvt Total Roll)"]
             )
 
-            # TOP MANDAL-WISE TABLE (UNDISTURBED)
             if mgmt_choice == "COMPARATIVE VIEW (Govt vs Aided vs Pvt Total Roll)":
                 piv_s = df_clean.pivot_table(index=block_col, columns='Merged_Management', values=udise_col, aggfunc='count', fill_value=0)
                 piv_b = df_clean.pivot_table(index=block_col, columns='Merged_Management', values=boys_col, aggfunc='sum', fill_value=0)
@@ -606,7 +603,6 @@ with tab1:
                         subtitle="PP (1-3), 1-5 (Pr/UP/HS), 6-8 (UP), 6-10 (HS), 11-12 (Colleges)"
                     )
 
-            # --- KOTHTHA REPORT: DISTRICT MANAGEMENT-WISE SUMMARY (GOVT / AIDED / PVT) ---
             st.markdown("---")
             st.markdown("#### 🏛️ District Management-wise Stage Abstract (Govt vs Aided vs Pvt)")
             st.caption("District-level consolidation across Pre-Primary, Primary, Upper Primary, High School & College Stages")
@@ -689,7 +685,6 @@ with tab1:
             if mgmt_col and sel_mgmt:
                 filtered_df = filtered_df[filtered_df[mgmt_col].isin(sel_mgmt)]
 
-            # --- SUMMARY METRICS FOR FILTERED DATA ---
             c_m1, c_m2, c_m3, c_m4 = st.columns(4)
             c_m1.metric("Selected Schools 🏫", f"{len(filtered_df):,}")
             c_m2.metric("Total Selected Roll 👥", f"{int(filtered_df[tot_col].sum()):,}")
@@ -708,7 +703,7 @@ with tab1:
             with col_cf2:
                 render_print_button(filtered_df.head(100), report_title="CUSTOM UDISE REPORT", subtitle=f"Total Schools: {len(filtered_df)}")
 
-        # --- SUBTAB 4: MANDATORY BIOMETRIC PENDING (MERGED MANAGEMENT INTEGRATED) ---
+        # --- SUBTAB 4: MANDATORY BIOMETRIC PENDING ---
         with subtab4:
             st.subheader("⏳ Mandatory Biometric Update (MBU) Pending Analysis")
             if df_mbu is None:
@@ -726,7 +721,6 @@ with tab1:
                 tot_mbu_pend = int(df_mbu['Total_MBU_Pending'].sum())
                 schools_with_pend = int((df_mbu['Total_MBU_Pending'] > 0).sum())
                 
-                # --- DISTRICT SUMMARY CARDS FOR MBU ---
                 mb_m1, mb_m2, mb_m3, mb_m4 = st.columns(4)
                 mb_m1.metric("Total District MBU Pending ⚠️", f"{tot_mbu_pend:,}")
                 mb_m2.metric("Schools with MBU Pending 🏫", f"{schools_with_pend:,}")
@@ -974,6 +968,7 @@ with tab3:
             else:
                 st.info("Paatasaala vivaraalu chudadaniki UDISE code enter cheyandi.")
 
+        # --- UPDATED SUBTAB 2: MANDAL & CADRE VACANCIES (WITH DISTRICT OVERALL SUMMARY REPORT) ---
         with c_tab2:
             st.markdown("#### 📌 Mandal-wise & Cadre-wise Vacancy Matrix")
             if c_mandal and vac_cols:
@@ -989,7 +984,30 @@ with tab3:
                 
                 cadre_cols_cleaned = [col_rename_map[vc] for vc in vac_cols]
                 mandal_cadre_vac['Total Vacancies'] = mandal_cadre_vac[cadre_cols_cleaned].sum(axis=1)
+
+                # --- DISTRICT OVERALL SUMMARY CARDS FOR VACANCIES ---
+                tot_dist_vac = int(mandal_cadre_vac['Total Vacancies'].sum())
                 
+                # Gr II HM Vacancies
+                hm_cols = [c for c in cadre_cols_cleaned if 'GR II HM' in c.upper() or 'HM' in c.upper()]
+                tot_hm_vac = int(mandal_cadre_vac[hm_cols].sum().sum()) if hm_cols else 0
+                
+                # School Assistant (SA) Vacancies
+                sa_cols = [c for c in cadre_cols_cleaned if c.upper().startswith('SA ') or 'SA-' in c.upper()]
+                tot_sa_vac = int(mandal_cadre_vac[sa_cols].sum().sum()) if sa_cols else 0
+
+                # SGT Vacancies
+                sgt_cols = [c for c in cadre_cols_cleaned if 'SGT' in c.upper()]
+                tot_sgt_vac = int(mandal_cadre_vac[sgt_cols].sum().sum()) if sgt_cols else 0
+
+                dv_1, dv_2, dv_3, dv_4 = st.columns(4)
+                dv_1.metric("District Total Vacancies ⚠️", f"{tot_dist_vac:,}")
+                dv_2.metric("Gr II HM Vacancies 🏫", f"{tot_hm_vac:,}")
+                dv_3.metric("School Assistant (SA) Vacancies 📚", f"{tot_sa_vac:,}")
+                dv_4.metric("SGT Vacancies ✏️", f"{tot_sgt_vac:,}")
+                st.markdown("---")
+
+                # Filter Mandals
                 all_mandals = sorted(mandal_cadre_vac['Mandal'].dropna().unique())
                 sel_m = st.multiselect("Filter by Mandal(s):", all_mandals, default=all_mandals, key="vac_mandal_filter")
                 
@@ -1013,6 +1031,45 @@ with tab3:
                     )
                 with col_vm2:
                     render_print_button(display_vac_with_total, report_title="MANDAL-WISE & CADRE-WISE VACANCY MATRIX", subtitle="West Godavari District")
+
+                # --- DISTRICT OVERALL CADRE SUMMARY TABLE ---
+                st.markdown("---")
+                st.markdown("#### 🏛️ District Overall Cadre-wise Vacancy Summary")
+                st.caption("Consolidated district vacancy count per designation, ranked highest to lowest")
+
+                cadre_sum_list = []
+                for cd in cadre_cols_cleaned:
+                    v_cnt = int(mandal_cadre_vac[cd].sum())
+                    if v_cnt > 0:
+                        cadre_sum_list.append({
+                            "Cadre / Designation": cd,
+                            "Total District Vacancies": v_cnt,
+                            "Share of Total Vacancies (%)": round((v_cnt / tot_dist_vac) * 100, 1) if tot_dist_vac > 0 else 0
+                        })
+
+                if cadre_sum_list:
+                    cadre_summary_df = pd.DataFrame(cadre_sum_list).sort_values(by="Total District Vacancies", ascending=False)
+                    cadre_summary_total = append_total_row(cadre_summary_df, label_col="Cadre / Designation", total_label="DISTRICT TOTAL")
+                    
+                    st.dataframe(cadre_summary_total, use_container_width=True, hide_index=True)
+
+                    col_dvc1, col_dvc2 = st.columns([1, 1])
+                    with col_dvc1:
+                        dvc_buf = io.BytesIO()
+                        with pd.ExcelWriter(dvc_buf, engine='openpyxl') as writer:
+                            cadre_summary_total.to_excel(writer, index=False, sheet_name='District_Cadre_Vacancies')
+                        st.download_button(
+                            "📥 Download District Cadre Vacancy Summary Excel", 
+                            data=dvc_buf.getvalue(), 
+                            file_name="District_Overall_Cadre_Vacancies.xlsx",
+                            use_container_width=True
+                        )
+                    with col_dvc2:
+                        render_print_button(
+                            cadre_summary_total, 
+                            report_title="DISTRICT OVERALL CADRE VACANCY SUMMARY", 
+                            subtitle="Total Vacancies by Designation"
+                        )
             else:
                 st.info("Khaaleelu emee record kaledhu.")
 
@@ -1024,7 +1081,6 @@ with tab3:
                     if c in df_cadre_work.columns:
                         df_cadre_work[c] = pd.to_numeric(df_cadre_work[c], errors='coerce').fillna(0)
 
-                # --- DISTRICT SUMMARY FOR CADRE ---
                 dc_1, dc_2, dc_3 = st.columns(3)
                 dc_1.metric("District Total Sanctioned 🏛️", f"{int(df_cadre_work[tot_sanc_col].sum()):,}" if tot_sanc_col else "0")
                 dc_2.metric("District Working Staff 👥", f"{int(df_cadre_work[tot_work_col].sum()):,}" if tot_work_col else "0")
