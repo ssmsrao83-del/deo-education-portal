@@ -12,7 +12,8 @@ st.markdown("---")
 
 EXCEL_FILE_PATH = "UPTO DATE UDISE ROLL.xlsx"
 TEACHERS_FILE_PATH = "TEACHERS DATA.xlsx"
-MBU_FILE_PATH = "mbu school wise pending.xlsx"
+# Capital letters tho match ayyelaa
+MBU_FILE_PATH = "MBU SCHOOL WISE PENDING.xlsx"
 
 MANAGEMENT_MAPPING = {
     10: "10 - State Govt.",
@@ -144,10 +145,16 @@ def render_print_button(dataframe, report_title="DEO REPORT", subtitle="West God
 
 @st.cache_data(ttl=30)
 def load_udise_data(file_path):
-    if not os.path.exists(file_path):
+    # Case insensitive search
+    actual_path = None
+    for f in os.listdir('.'):
+        if f.lower() == file_path.lower():
+            actual_path = f
+            break
+    if not actual_path:
         return None
     try:
-        df = pd.read_excel(file_path)
+        df = pd.read_excel(actual_path)
         df.columns = [str(c).strip() for c in df.columns]
         for col in df.columns:
             if 'MANAGE' in col.upper():
@@ -161,10 +168,15 @@ def load_udise_data(file_path):
 
 @st.cache_data(ttl=30)
 def load_cadre_data(file_path):
-    if not os.path.exists(file_path):
+    actual_path = None
+    for f in os.listdir('.'):
+        if f.lower() == file_path.lower():
+            actual_path = f
+            break
+    if not actual_path:
         return None
     try:
-        df_raw = pd.read_excel(file_path, header=[0, 1])
+        df_raw = pd.read_excel(actual_path, header=[0, 1])
         new_cols = []
         for c in df_raw.columns:
             l0 = str(c[0]).strip()
@@ -180,7 +192,7 @@ def load_cadre_data(file_path):
         return df_raw
     except Exception as e:
         try:
-            df_fallback = pd.read_excel(file_path)
+            df_fallback = pd.read_excel(actual_path)
             df_fallback = df_fallback.loc[:, ~df_fallback.columns.duplicated()]
             return df_fallback
         except:
@@ -188,10 +200,16 @@ def load_cadre_data(file_path):
 
 @st.cache_data(ttl=30)
 def load_mbu_data(file_path):
-    if not os.path.exists(file_path):
+    # Case insensitive search - capital unna small unna pattukuntundi
+    actual_path = None
+    for f in os.listdir('.'):
+        if f.lower() == file_path.lower():
+            actual_path = f
+            break
+    if not actual_path:
         return None
     try:
-        df_m = pd.read_excel(file_path)
+        df_m = pd.read_excel(actual_path)
         df_m.columns = [str(c).strip() for c in df_m.columns]
         for col in df_m.columns:
             if 'MANAGE' in col.upper():
@@ -199,7 +217,6 @@ def load_mbu_data(file_path):
             if 'CATEG' in col.upper():
                 df_m['Category_Display'] = df_m[col].apply(lambda x: clean_and_map(x, CATEGORY_MAPPING))
         
-        # Calculate Total MBU Pending Column
         p5_15 = next((c for c in df_m.columns if '5-15' in c), None)
         p15_p = next((c for c in df_m.columns if '15 and above' in c.lower() or '15+' in c), None)
         
@@ -333,9 +350,9 @@ with tab1:
                         with col_t2:
                             st.bar_chart(cdf.set_index("Class")[["Boys 👦", "Girls 👧"]])
                     else:
-                        st.info("ఈ పాఠశాలకు సంబంధించిన తరగతుల వివరాలు లభించలేదు.")
+                        st.info("Ee paathasaalaku sambandhinchina tharagathula vivaraalu labhinchaledhu.")
                 else:
-                    st.warning("ఈ UDISE కోడ్ తో రికార్డు కనబడలేదు.")
+                    st.warning("Ee UDISE code tho record kanabada ledhu.")
 
         with subtab2:
             st.subheader("📊 Mandal-wise Enrolment Abstract")
@@ -381,7 +398,7 @@ with tab1:
             if mgmt_col and sel_mgmt:
                 filtered_df = filtered_df[filtered_df[mgmt_col].isin(sel_mgmt)]
 
-            st.write(f"మొత్తం పాఠశాలలు: **{len(filtered_df)}**")
+            st.write(f"Moththam Paatasaalalu: **{len(filtered_df)}**")
             st.dataframe(filtered_df, use_container_width=True)
 
             col_cf1, col_cf2 = st.columns([1, 1])
@@ -397,7 +414,7 @@ with tab1:
         with subtab4:
             st.subheader("⏳ Mandatory Biometric Update (MBU) Pending Analysis")
             if df_mbu is None:
-                st.warning(f"⚠️ '{MBU_FILE_PATH}' ఫైల్ GitHub లో ఇంకా లోడ్ కాలేదు. దయచేసి ఫైల్ అప్‌లోడ్ అయిందో లేదో తనిఖీ చేయండి.")
+                st.warning(f"⚠️ '{MBU_FILE_PATH}' file GitHub lo load kaaledhu. File upload aindo ledho chudandi.")
             else:
                 mbu_block_col = next((c for c in df_mbu.columns if 'BLOCK NAME' in c.upper() or 'MANDAL' in c.upper()), None)
                 mbu_mgmt_col = 'Management_Display' if 'Management_Display' in df_mbu.columns else next((c for c in df_mbu.columns if 'MANAGE' in c.upper()), None)
@@ -410,7 +427,6 @@ with tab1:
                 passed_col = next((c for c in df_mbu.columns if 'PASSED' in c.upper()), None)
                 failed_col = next((c for c in df_mbu.columns if 'FAILED' in c.upper()), None)
                 
-                # Metrics Row
                 tot_mbu_pend = int(df_mbu['Total_MBU_Pending'].sum())
                 schools_with_pend = int((df_mbu['Total_MBU_Pending'] > 0).sum())
                 
@@ -439,7 +455,6 @@ with tab1:
                         pivot_mbu['Total Pending'] = pivot_mbu[mgmt_cols_in_pivot].sum(axis=1)
                         pivot_mbu = pivot_mbu.rename(columns={mbu_block_col: 'Mandal (Block)'})
                         
-                        # Reorder with Total Pending right after Mandal
                         ordered_cols = ['Mandal (Block)', 'Total Pending'] + mgmt_cols_in_pivot
                         pivot_mbu = pivot_mbu[ordered_cols]
                         
@@ -467,8 +482,6 @@ with tab1:
                         sel_mbu_mandal = st.selectbox("Select Mandal:", m_list_mbu, key="mbu_mandal_select")
                         
                         m_filter_df = df_mbu[df_mbu[mbu_block_col] == sel_mbu_mandal].copy()
-                        
-                        # Show only schools with pending by default, with a toggle
                         show_only_pending = st.checkbox("Show only Schools with Pending > 0", value=True)
                         if show_only_pending:
                             m_filter_df = m_filter_df[m_filter_df['Total_MBU_Pending'] > 0]
@@ -534,7 +547,7 @@ with tab2:
 with tab3:
     st.subheader("📊 Cadre Strength, Working & Vacancy Analysis")
     if df_cadre is None:
-        st.warning(f"⚠️ '{TEACHERS_FILE_PATH}' ఫైల్ సరిగ్గా లోడ్ కాలేదు. దయచేసి ఫైల్ అప్‌లోడ్ అయిందో లేదో తనిఖీ చేయండి.")
+        st.warning(f"⚠️ '{TEACHERS_FILE_PATH}' file load kaaledhu. File upload aindo ledho chudandi.")
     else:
         c_udise = next((c for c in df_cadre.columns if 'UDISE' in str(c).upper()), None)
         c_school = next((c for c in df_cadre.columns if any(k in str(c).upper() for k in ['HS/UPS_NAME', 'SCHOOL', 'NAME'])), None)
@@ -631,9 +644,9 @@ with tab3:
                     st.dataframe(p_df_with_total, use_container_width=True, hide_index=True)
                     render_print_button(p_df_with_total, report_title=f"{s_name} - CADRE BREAKUP", subtitle=f"UDISE: {c_row[c_udise]} | Mandal: {m_name}")
                 else:
-                    st.info("ఈ పాఠశాలకు సంబంధించిన పోస్టుల విభజన వివరాలు అందుబాటులో లేవు.")
+                    st.info("Ee paatasaalaku sambandhinchina post-wise vivaraalu levu.")
             else:
-                st.info("పాఠశాల వివరాలు చూడటానికి UDISE కోడ్ నమోదు చేయండి.")
+                st.info("Paatasaala vivaraalu chudadaniki UDISE code enter cheyandi.")
 
         with c_tab2:
             st.markdown("#### 📌 Mandal-wise & Cadre-wise Vacancy Matrix")
@@ -675,7 +688,7 @@ with tab3:
                 with col_vm2:
                     render_print_button(display_vac_with_total, report_title="MANDAL-WISE & CADRE-WISE VACANCY MATRIX", subtitle="West Godavari District")
             else:
-                st.info("ఖాళీల వివరాలు అందుబాటులో లేవు.")
+                st.info("Khaaleelu emee record kaledhu.")
 
         with c_tab3:
             st.markdown("#### 📑 Mandal-wise Cadre-wise Status (Sanctioned, Working, Vacant)")
@@ -784,7 +797,7 @@ with tab3:
                     with col_all2:
                         render_print_button(master_df_with_total.head(200), report_title="FULL DISTRICT CADRE MASTER REPORT", subtitle="All Mandals - Cadre Status")
             else:
-                st.info("కేడర్ వివరాలు అందుబాటులో లేవు.")
+                st.info("Cadre vivaraalu labhinchaledhu.")
 
 # ==========================================
 # ------------ TAB 4: MIS REPORTS ---------
