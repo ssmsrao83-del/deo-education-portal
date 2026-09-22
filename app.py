@@ -313,12 +313,25 @@ with tab1:
         mgmt_col = 'Management_Display' if 'Management_Display' in df.columns else next((c for c in df.columns if 'MANAGE' in c.upper()), None)
         cat_col = 'Category_Display' if 'Category_Display' in df.columns else next((c for c in df.columns if 'CATEG' in c.upper()), None)
 
-        def get_cols(classes, gender):
+        # Helpers to separate Pre-Primary (PP) and Classes 1 to 5
+        def get_pp_cols(gender):
             res = []
             for c in df.columns:
+                cu = c.upper()
+                if any(p in cu for p in ['PP', 'PRE', 'LKG', 'UKG', 'NURSERY']) and gender.upper() in cu:
+                    res.append(c)
+            return list(set(res))
+
+        def get_class_cols(classes, gender):
+            res = []
+            for c in df.columns:
+                cu = c.upper()
+                # Exclude Pre-Primary indicators
+                if any(p in cu for p in ['PP', 'PRE', 'LKG', 'UKG', 'NURSERY']):
+                    continue
                 for cl in classes:
                     patterns = [f"C{cl}(", f"CLASS {cl}(", f"CLASS{cl}(", f" {cl}("]
-                    if any(p in c.upper() for p in patterns) and gender.upper() in c.upper():
+                    if any(p in cu for p in patterns) and gender.upper() in cu:
                         res.append(c)
             return list(set(res))
 
@@ -327,42 +340,49 @@ with tab1:
                 return pd.Series(0, index=dframe.index)
             return dframe[col_list].apply(pd.to_numeric, errors='coerce').fillna(0).sum(axis=1)
 
-        c1_5_b = get_cols([1, 2, 3, 4, 5], 'BOY')
-        c1_5_g = get_cols([1, 2, 3, 4, 5], 'GIRL')
-        c6_8_b = get_cols([6, 7, 8], 'BOY')
-        c6_8_g = get_cols([6, 7, 8], 'GIRL')
-        c6_10_b = get_cols([6, 7, 8, 9, 10], 'BOY')
-        c6_10_g = get_cols([6, 7, 8, 9, 10], 'GIRL')
-        c11_12_b = get_cols([11, 12], 'BOY')
-        c11_12_g = get_cols([11, 12], 'GIRL')
+        # Separate column lists
+        pp_b = get_pp_cols('BOY')
+        pp_g = get_pp_cols('GIRL')
+        c1_5_b = get_class_cols([1, 2, 3, 4, 5], 'BOY')
+        c1_5_g = get_class_cols([1, 2, 3, 4, 5], 'GIRL')
+        c6_8_b = get_class_cols([6, 7, 8], 'BOY')
+        c6_8_g = get_class_cols([6, 7, 8], 'GIRL')
+        c6_10_b = get_class_cols([6, 7, 8, 9, 10], 'BOY')
+        c6_10_g = get_class_cols([6, 7, 8, 9, 10], 'GIRL')
+        c11_12_b = get_class_cols([11, 12], 'BOY')
+        c11_12_g = get_class_cols([11, 12], 'GIRL')
 
         cat_series = df['Category_Code'] if 'Category_Code' in df.columns else pd.Series(0, index=df.index)
         
-        # 1-5 Classes
+        # 1. Pre-Primary (PP1 to PP3)
+        df['PP_B'] = calc_sum(df, pp_b)
+        df['PP_G'] = calc_sum(df, pp_g)
+        df['PP_T'] = df['PP_B'] + df['PP_G']
+
+        # 2. Strict Class 1 to 5 (Excluding PP)
         mask_1_5 = cat_series.isin([1, 2, 3, 6])
         df['P_1_5_B'] = np.where(mask_1_5, calc_sum(df, c1_5_b), 0)
         df['P_1_5_G'] = np.where(mask_1_5, calc_sum(df, c1_5_g), 0)
         df['P_1_5_T'] = df['P_1_5_B'] + df['P_1_5_G']
 
-        # 6-8 Classes (UP)
+        # 3. 6-8 Classes (UP Schools: Cat 2 only)
         mask_6_8_up = cat_series.isin([2])
         df['UP_6_8_B'] = np.where(mask_6_8_up, calc_sum(df, c6_8_b), 0)
         df['UP_6_8_G'] = np.where(mask_6_8_up, calc_sum(df, c6_8_g), 0)
         df['UP_6_8_T'] = df['UP_6_8_B'] + df['UP_6_8_G']
 
-        # 6-10 Classes (High School)
+        # 4. 6-10 Classes (High Schools: Cat 3, 5, 6, 7)
         mask_6_10_hs = cat_series.isin([3, 5, 6, 7])
         df['HS_6_10_B'] = np.where(mask_6_10_hs, calc_sum(df, c6_10_b), 0)
         df['HS_6_10_G'] = np.where(mask_6_10_hs, calc_sum(df, c6_10_g), 0)
         df['HS_6_10_T'] = df['HS_6_10_B'] + df['HS_6_10_G']
 
-        # 11-12 Classes (Colleges)
+        # 5. 11-12 Classes (Colleges / Higher Sec: Cat 11, 3, 5)
         mask_11_12 = cat_series.isin([11, 3, 5])
         df['COL_11_12_B'] = np.where(mask_11_12, calc_sum(df, c11_12_b), 0)
         df['COL_11_12_G'] = np.where(mask_11_12, calc_sum(df, c11_12_g), 0)
         df['COL_11_12_T'] = df['COL_11_12_B'] + df['COL_11_12_G']
 
-        # 4 CLEAR SUB-TABS (No Nesting)
         subtab1, subtab2, subtab3, subtab4 = st.tabs([
             "🔍 School 360° Search", 
             "📊 Mandal-wise Abstract", 
@@ -439,11 +459,11 @@ with tab1:
                         with col_t2:
                             st.bar_chart(cdf.set_index("Class")[["Boys 👦", "Girls 👧"]])
                     else:
-                        st.info("Ee paatasaalaku sambandhinchina tharagathula vivaraalu labhinchaledhu.")
+                        st.info("ఈ పాఠశాలకు సంబంధించిన తరగతుల వివరాలు లభించలేదు.")
                 else:
-                    st.warning("Ee UDISE code tho record kanabada ledhu.")
+                    st.warning("ఈ UDISE కోడ్ తో రికార్డు కనబడలేదు.")
 
-        # --- SUBTAB 2: MANDAL-WISE ABSTRACT (MERGED MANAGEMENT & STAGE-WISE) ---
+        # --- SUBTAB 2: MANDAL-WISE ABSTRACT (PP 1-3 & CLASS 1-5 SEPARATE) ---
         with subtab2:
             st.subheader("📊 Mandal-wise Stage & Management Enrolment Abstract")
 
@@ -451,7 +471,7 @@ with tab1:
             df_clean = df_clean[df_clean[block_col].astype(str).str.len() > 2]
 
             mgmt_choice = st.selectbox(
-                "Select Management to View Stage Breakdown (1-5, 6-8, 6-10, 11-12):",
+                "Select Management to View Stage Breakdown (PP 1-3, 1-5, 6-8, 6-10, 11-12):",
                 ["ALL MANAGEMENTS (Total District)", "STATE GOVT Only", "AIDED Only", "PRIVATE Only", "COMPARATIVE VIEW (Govt vs Aided vs Pvt Total Roll)"]
             )
 
@@ -518,6 +538,7 @@ with tab1:
 
                 agg_dict = {
                     udise_col: 'count', tot_col: 'sum',
+                    'PP_B': 'sum', 'PP_G': 'sum', 'PP_T': 'sum',
                     'P_1_5_B': 'sum', 'P_1_5_G': 'sum', 'P_1_5_T': 'sum',
                     'UP_6_8_B': 'sum', 'UP_6_8_G': 'sum', 'UP_6_8_T': 'sum',
                     'HS_6_10_B': 'sum', 'HS_6_10_G': 'sum', 'HS_6_10_T': 'sum',
@@ -529,6 +550,7 @@ with tab1:
                     block_col: 'Mandal (Block)',
                     udise_col: 'Schools',
                     tot_col: 'Grand Total Roll',
+                    'PP_B': 'PP (1-3) Boys', 'PP_G': 'PP (1-3) Girls', 'PP_T': 'PP (1-3) Total',
                     'P_1_5_B': '1-5 Boys', 'P_1_5_G': '1-5 Girls', 'P_1_5_T': '1-5 Total',
                     'UP_6_8_B': '6-8 UP Boys', 'UP_6_8_G': '6-8 UP Girls', 'UP_6_8_T': '6-8 UP Total',
                     'HS_6_10_B': '6-10 HS Boys', 'HS_6_10_G': '6-10 HS Girls', 'HS_6_10_T': '6-10 HS Total',
@@ -537,6 +559,7 @@ with tab1:
 
                 stage_cols = [
                     'Mandal (Block)', 'Schools', 'Grand Total Roll',
+                    'PP (1-3) Boys', 'PP (1-3) Girls', 'PP (1-3) Total',
                     '1-5 Boys', '1-5 Girls', '1-5 Total',
                     '6-8 UP Boys', '6-8 UP Girls', '6-8 UP Total',
                     '6-10 HS Boys', '6-10 HS Girls', '6-10 HS Total',
@@ -561,9 +584,10 @@ with tab1:
                     render_print_button(
                         display_df_total, 
                         report_title=f"MANDAL-WISE STAGE-WISE ABSTRACT - {label_sub}", 
-                        subtitle="1-5 (Pr/UP/HS), 6-8 (UP), 6-10 (HS), 11-12 (Colleges)"
+                        subtitle="PP (1-3), 1-5 (Pr/UP/HS), 6-8 (UP), 6-10 (HS), 11-12 (Colleges)"
                     )
 
+        # --- SUBTAB 3: CUSTOM REPORTS (CLEANED UP TO HIDE INTERNAL CALC COLUMNS) ---
         with subtab3:
             st.subheader("📑 Custom Reports & Excel Export")
             f1, f2 = st.columns(2)
@@ -574,13 +598,18 @@ with tab1:
                 mgmt_list = sorted(list(df[mgmt_col].dropna().unique())) if mgmt_col else []
                 sel_mgmt = st.multiselect("Select Management:", mgmt_list, default=mgmt_list)
 
-            filtered_df = df.copy()
+            # Drop internal computation columns from raw display table
+            cols_to_hide = ['PP_B', 'PP_G', 'PP_T', 'P_1_5_B', 'P_1_5_G', 'P_1_5_T', 'UP_6_8_B', 'UP_6_8_G', 'UP_6_8_T', 
+                            'HS_6_10_B', 'HS_6_10_G', 'HS_6_10_T', 'COL_11_12_B', 'COL_11_12_G', 'COL_11_12_T', 'Category_Code']
+            clean_display_df = df.drop(columns=[c for c in cols_to_hide if c in df.columns])
+
+            filtered_df = clean_display_df.copy()
             if block_col and sel_mandals:
                 filtered_df = filtered_df[filtered_df[block_col].isin(sel_mandals)]
             if mgmt_col and sel_mgmt:
                 filtered_df = filtered_df[filtered_df[mgmt_col].isin(sel_mgmt)]
 
-            st.write(f"Moththam Paatasaalalu: **{len(filtered_df)}**")
+            st.write(f"మొత్తం పాఠశాలలు: **{len(filtered_df)}**")
             st.dataframe(filtered_df, use_container_width=True)
 
             col_cf1, col_cf2 = st.columns([1, 1])
@@ -596,7 +625,7 @@ with tab1:
         with subtab4:
             st.subheader("⏳ Mandatory Biometric Update (MBU) Pending Analysis")
             if df_mbu is None:
-                st.warning(f"⚠️ '{MBU_FILE_PATH}' file GitHub lo load kaaledhu. File upload aindo ledho chudandi.")
+                st.warning(f"⚠️ '{MBU_FILE_PATH}' ఫైల్ GitHub లో ఇంకా లోడ్ కాలేదు. ఫైల్ అప్‌లోడ్ అయిందో లేదో తనిఖీ చేయండి.")
             else:
                 mbu_block_col = next((c for c in df_mbu.columns if 'BLOCK' in c.upper() or 'MANDAL' in c.upper()), None)
                 mbu_mgmt_col = 'Management_Display' if 'Management_Display' in df_mbu.columns else next((c for c in df_mbu.columns if 'MANAGE' in c.upper()), None)
@@ -739,7 +768,7 @@ with tab2:
 with tab3:
     st.subheader("📊 Cadre Strength, Working & Vacancy Analysis")
     if df_cadre is None:
-        st.warning(f"⚠️ '{TEACHERS_FILE_PATH}' file load kaaledhu. File upload aindo ledho chudandi.")
+        st.warning(f"⚠️ '{TEACHERS_FILE_PATH}' ఫైల్ లోడ్ కాలేదు. ఫైల్ అప్‌లోడ్ అయిందో లేదో తనిఖీ చేయండి.")
     else:
         c_udise = next((c for c in df_cadre.columns if 'UDISE' in str(c).upper()), None)
         c_school = next((c for c in df_cadre.columns if any(k in str(c).upper() for k in ['HS/UPS_NAME', 'SCHOOL', 'NAME'])), None)
