@@ -12,6 +12,7 @@ st.markdown("---")
 
 EXCEL_FILE_PATH = "UPTO DATE UDISE ROLL.xlsx"
 TEACHERS_FILE_PATH = "TEACHERS DATA.xlsx"
+MBU_FILE_PATH = "mbu school wise pending.xlsx"
 
 MANAGEMENT_MAPPING = {
     10: "10 - State Govt.",
@@ -48,7 +49,6 @@ def clean_and_map(val, mapping_dict):
         return str(val)
 
 def append_total_row(df_in, label_col, total_label="TOTAL"):
-    """Appends a bold Total summary row to any numeric dataframe"""
     if df_in.empty:
         return df_in
     df_calc = df_in.copy()
@@ -60,7 +60,6 @@ def append_total_row(df_in, label_col, total_label="TOTAL"):
             total_dict[col] = df_calc[col].sum()
         else:
             try:
-                # Try numeric conversion if values are strings/numbers
                 num_s = pd.to_numeric(df_calc[col], errors='coerce')
                 if num_s.notnull().any():
                     total_dict[col] = int(num_s.fillna(0).sum())
@@ -71,7 +70,6 @@ def append_total_row(df_in, label_col, total_label="TOTAL"):
     return pd.concat([df_calc, pd.DataFrame([total_dict])], ignore_index=True)
 
 def render_print_button(dataframe, report_title="DEO REPORT", subtitle="West Godavari District"):
-    """Opens a clean new print preview window containing the full table with headers"""
     html_table = dataframe.to_html(index=False, classes='print-table')
     html_table_escaped = html_table.replace("`", "'").replace("\\", "\\\\")
 
@@ -99,7 +97,6 @@ def render_print_button(dataframe, report_title="DEO REPORT", subtitle="West God
     </head>
     <body style="margin: 0; padding: 0;">
       <button class="p-btn" onclick="printReport()">🖨️ Direct Print / Save as PDF</button>
-
       <script>
       function printReport() {{
           var tableHtml = `{html_table_escaped}`;
@@ -109,62 +106,17 @@ def render_print_button(dataframe, report_title="DEO REPORT", subtitle="West God
             <head>
               <title>{report_title}</title>
               <style>
-                body {{
-                    font-family: Arial, sans-serif;
-                    margin: 20px;
-                    color: #000;
-                }}
-                .header-area {{
-                    text-align: center;
-                    border-bottom: 2px solid #000;
-                    padding-bottom: 8px;
-                    margin-bottom: 15px;
-                }}
-                .header-area h2 {{
-                    margin: 0;
-                    font-size: 17px;
-                    color: #1a237e;
-                    text-transform: uppercase;
-                }}
-                .header-area h3 {{
-                    margin: 4px 0;
-                    font-size: 14px;
-                    color: #333;
-                }}
-                .header-area p {{
-                    margin: 3px 0 0 0;
-                    font-size: 12px;
-                    color: #555;
-                    font-weight: bold;
-                }}
-                .print-table {{
-                    width: 100%;
-                    border-collapse: collapse;
-                    font-size: 12px;
-                }}
-                .print-table th, .print-table td {{
-                    border: 1px solid #444;
-                    padding: 6px 8px;
-                    text-align: left;
-                }}
-                .print-table th {{
-                    background-color: #f2f2f2 !important;
-                    font-weight: bold;
-                    -webkit-print-color-adjust: exact;
-                }}
-                .print-table tr:nth-child(even) {{
-                    background-color: #fafafa;
-                    -webkit-print-color-adjust: exact;
-                }}
-                .print-table tr:last-child {{
-                    font-weight: bold;
-                    background-color: #eaeaea !important;
-                    border-top: 2px solid #222;
-                }}
-                @media print {{
-                    body {{ margin: 10mm; }}
-                    .print-table {{ font-size: 11px; }}
-                }}
+                body {{ font-family: Arial, sans-serif; margin: 20px; color: #000; }}
+                .header-area {{ text-align: center; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 15px; }}
+                .header-area h2 {{ margin: 0; font-size: 17px; color: #1a237e; text-transform: uppercase; }}
+                .header-area h3 {{ margin: 4px 0; font-size: 14px; color: #333; }}
+                .header-area p {{ margin: 3px 0 0 0; font-size: 12px; color: #555; font-weight: bold; }}
+                .print-table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
+                .print-table th, .print-table td {{ border: 1px solid #444; padding: 6px 8px; text-align: left; }}
+                .print-table th {{ background-color: #f2f2f2 !important; font-weight: bold; -webkit-print-color-adjust: exact; }}
+                .print-table tr:nth-child(even) {{ background-color: #fafafa; -webkit-print-color-adjust: exact; }}
+                .print-table tr:last-child {{ font-weight: bold; background-color: #eaeaea !important; border-top: 2px solid #222; }}
+                @media print {{ body {{ margin: 10mm; }} .print-table {{ font-size: 11px; }} }}
               </style>
             </head>
             <body>
@@ -234,8 +186,40 @@ def load_cadre_data(file_path):
         except:
             return None
 
+@st.cache_data(ttl=30)
+def load_mbu_data(file_path):
+    if not os.path.exists(file_path):
+        return None
+    try:
+        df_m = pd.read_excel(file_path)
+        df_m.columns = [str(c).strip() for c in df_m.columns]
+        for col in df_m.columns:
+            if 'MANAGE' in col.upper():
+                df_m['Management_Display'] = df_m[col].apply(lambda x: clean_and_map(x, MANAGEMENT_MAPPING))
+            if 'CATEG' in col.upper():
+                df_m['Category_Display'] = df_m[col].apply(lambda x: clean_and_map(x, CATEGORY_MAPPING))
+        
+        # Calculate Total MBU Pending Column
+        p5_15 = next((c for c in df_m.columns if '5-15' in c), None)
+        p15_p = next((c for c in df_m.columns if '15 and above' in c.lower() or '15+' in c), None)
+        
+        if p5_15 and p15_p:
+            df_m[p5_15] = pd.to_numeric(df_m[p5_15], errors='coerce').fillna(0)
+            df_m[p15_p] = pd.to_numeric(df_m[p15_p], errors='coerce').fillna(0)
+            df_m['Total_MBU_Pending'] = df_m[p5_15] + df_m[p15_p]
+        elif p5_15:
+            df_m['Total_MBU_Pending'] = pd.to_numeric(df_m[p5_15], errors='coerce').fillna(0)
+        else:
+            df_m['Total_MBU_Pending'] = 0
+
+        return df_m
+    except Exception as e:
+        st.error(f"Error reading MBU file: {e}")
+        return None
+
 df = load_udise_data(EXCEL_FILE_PATH)
 df_cadre = load_cadre_data(TEACHERS_FILE_PATH)
+df_mbu = load_mbu_data(MBU_FILE_PATH)
 
 tab1, tab2, tab3, tab4 = st.tabs([
     "🏫 School 360° & UDISE Reports",
@@ -273,10 +257,11 @@ with tab1:
         mgmt_col = 'Management_Display' if 'Management_Display' in df.columns else next((c for c in df.columns if 'MANAGE' in c.upper()), None)
         cat_col = 'Category_Display' if 'Category_Display' in df.columns else next((c for c in df.columns if 'CATEG' in c.upper()), None)
 
-        subtab1, subtab2, subtab3 = st.tabs([
+        subtab1, subtab2, subtab3, subtab4 = st.tabs([
             "🔍 School 360° Search", 
             "📊 Mandal-wise Abstract", 
-            "📑 Custom Reports & Excel Export"
+            "📑 Custom Reports & Excel Export",
+            "⏳ Mandatory Biometric (MBU) Pending"
         ])
 
         with subtab1:
@@ -341,7 +326,6 @@ with tab1:
                     if class_data:
                         cdf = pd.DataFrame(class_data)
                         cdf_with_total = append_total_row(cdf, label_col="Class", total_label="TOTAL")
-                        
                         col_t1, col_t2 = st.columns([3, 2])
                         with col_t1:
                             st.dataframe(cdf_with_total, use_container_width=True, hide_index=True)
@@ -369,7 +353,6 @@ with tab1:
                 mandal_summary = mandal_summary.rename(columns={block_col: 'Mandal (Block)'})
                 mandal_summary = mandal_summary.rename(columns=rename_cols)
                 
-                # Append District Total Row
                 mandal_summary_with_total = append_total_row(mandal_summary, label_col='Mandal (Block)', total_label='DISTRICT TOTAL')
                 st.dataframe(mandal_summary_with_total, use_container_width=True, hide_index=True)
                 
@@ -409,6 +392,135 @@ with tab1:
                 st.download_button("📥 Download Filtered Report as Excel", data=buffer.getvalue(), file_name="Filtered_UDISE_Report.xlsx", use_container_width=True)
             with col_cf2:
                 render_print_button(filtered_df.head(100), report_title="CUSTOM UDISE REPORT", subtitle=f"Total Schools: {len(filtered_df)}")
+
+        # --- SUBTAB 4: MANDATORY BIOMETRIC PENDING ---
+        with subtab4:
+            st.subheader("⏳ Mandatory Biometric Update (MBU) Pending Analysis")
+            if df_mbu is None:
+                st.warning(f"⚠️ '{MBU_FILE_PATH}' ఫైల్ GitHub లో ఇంకా లోడ్ కాలేదు. దయచేసి ఫైల్ అప్‌లోడ్ అయిందో లేదో తనిఖీ చేయండి.")
+            else:
+                mbu_block_col = next((c for c in df_mbu.columns if 'BLOCK NAME' in c.upper() or 'MANDAL' in c.upper()), None)
+                mbu_mgmt_col = 'Management_Display' if 'Management_Display' in df_mbu.columns else next((c for c in df_mbu.columns if 'MANAGE' in c.upper()), None)
+                mbu_udise_col = next((c for c in df_mbu.columns if 'UDISE' in c.upper()), None)
+                mbu_school_col = next((c for c in df_mbu.columns if 'SCHOOL NAME' in c.upper()), None)
+                
+                p5_15_col = next((c for c in df_mbu.columns if '5-15' in c), None)
+                p15_plus_col = next((c for c in df_mbu.columns if '15 and above' in c.lower() or '15+' in c), None)
+                tot_stu_col = next((c for c in df_mbu.columns if 'TOTAL STUDENT' in c.upper()), None)
+                passed_col = next((c for c in df_mbu.columns if 'PASSED' in c.upper()), None)
+                failed_col = next((c for c in df_mbu.columns if 'FAILED' in c.upper()), None)
+                
+                # Metrics Row
+                tot_mbu_pend = int(df_mbu['Total_MBU_Pending'].sum())
+                schools_with_pend = int((df_mbu['Total_MBU_Pending'] > 0).sum())
+                
+                mb_m1, mb_m2, mb_m3 = st.columns(3)
+                mb_m1.metric("Total MBU Pending Students ⚠️", f"{tot_mbu_pend:,}")
+                mb_m2.metric("Schools with MBU Pending 🏫", f"{schools_with_pend:,}")
+                mb_m3.metric("Total District Schools Tracked", f"{len(df_mbu):,}")
+
+                mbu_view1, mbu_view2 = st.tabs([
+                    "📊 Mandal-wise & Management-wise Abstract", 
+                    "🏫 Mandal-wise School Detailed List"
+                ])
+
+                with mbu_view1:
+                    st.markdown("##### 📌 Mandal & Management-wise Pending Students Matrix")
+                    if mbu_block_col and mbu_mgmt_col:
+                        pivot_mbu = df_mbu.pivot_table(
+                            index=mbu_block_col,
+                            columns=mbu_mgmt_col,
+                            values='Total_MBU_Pending',
+                            aggfunc='sum',
+                            fill_value=0
+                        ).reset_index()
+                        
+                        mgmt_cols_in_pivot = [c for c in pivot_mbu.columns if c != mbu_block_col]
+                        pivot_mbu['Total Pending'] = pivot_mbu[mgmt_cols_in_pivot].sum(axis=1)
+                        pivot_mbu = pivot_mbu.rename(columns={mbu_block_col: 'Mandal (Block)'})
+                        
+                        # Reorder with Total Pending right after Mandal
+                        ordered_cols = ['Mandal (Block)', 'Total Pending'] + mgmt_cols_in_pivot
+                        pivot_mbu = pivot_mbu[ordered_cols]
+                        
+                        pivot_mbu_with_total = append_total_row(pivot_mbu, label_col='Mandal (Block)', total_label='DISTRICT TOTAL')
+                        st.dataframe(pivot_mbu_with_total, use_container_width=True, hide_index=True)
+                        
+                        col_pb1, col_pb2 = st.columns([1, 1])
+                        with col_pb1:
+                            p_buf = io.BytesIO()
+                            with pd.ExcelWriter(p_buf, engine='openpyxl') as writer:
+                                pivot_mbu_with_total.to_excel(writer, index=False, sheet_name='MBU_Matrix')
+                            st.download_button(
+                                "📥 Download MBU Abstract Matrix as Excel", 
+                                data=p_buf.getvalue(), 
+                                file_name="Mandal_Management_MBU_Pending.xlsx",
+                                use_container_width=True
+                            )
+                        with col_pb2:
+                            render_print_button(pivot_mbu_with_total, report_title="MANDAL & MANAGEMENT-WISE MBU PENDING MATRIX", subtitle="West Godavari District")
+
+                with mbu_view2:
+                    st.markdown("##### 🔍 School-wise Pending Details by Mandal")
+                    if mbu_block_col:
+                        m_list_mbu = sorted(list(df_mbu[mbu_block_col].dropna().unique()))
+                        sel_mbu_mandal = st.selectbox("Select Mandal:", m_list_mbu, key="mbu_mandal_select")
+                        
+                        m_filter_df = df_mbu[df_mbu[mbu_block_col] == sel_mbu_mandal].copy()
+                        
+                        # Show only schools with pending by default, with a toggle
+                        show_only_pending = st.checkbox("Show only Schools with Pending > 0", value=True)
+                        if show_only_pending:
+                            m_filter_df = m_filter_df[m_filter_df['Total_MBU_Pending'] > 0]
+                        
+                        display_cols = []
+                        rename_disp = {}
+                        if mbu_udise_col:
+                            display_cols.append(mbu_udise_col)
+                            rename_disp[mbu_udise_col] = 'UDISE Code'
+                        if mbu_school_col:
+                            display_cols.append(mbu_school_col)
+                            rename_disp[mbu_school_col] = 'School Name'
+                        if mbu_mgmt_col:
+                            display_cols.append(mbu_mgmt_col)
+                            rename_disp[mbu_mgmt_col] = 'Management'
+                        if tot_stu_col:
+                            display_cols.append(tot_stu_col)
+                            rename_disp[tot_stu_col] = 'Total Students'
+                        if passed_col:
+                            display_cols.append(passed_col)
+                            rename_disp[passed_col] = 'Aadhaar Verified (Pass)'
+                        if failed_col:
+                            display_cols.append(failed_col)
+                            rename_disp[failed_col] = 'Aadhaar Failed'
+                        if p5_15_col:
+                            display_cols.append(p5_15_col)
+                            rename_disp[p5_15_col] = 'MBU Pending (5-15)'
+                        if p15_plus_col:
+                            display_cols.append(p15_plus_col)
+                            rename_disp[p15_plus_col] = 'MBU Pending (15+)'
+                        
+                        display_cols.append('Total_MBU_Pending')
+                        rename_disp['Total_MBU_Pending'] = 'Grand Total Pending'
+
+                        sch_disp_df = m_filter_df[display_cols].rename(columns=rename_disp)
+                        sch_disp_with_total = append_total_row(sch_disp_df, label_col='School Name', total_label='MANDAL TOTAL')
+                        
+                        st.dataframe(sch_disp_with_total, use_container_width=True, hide_index=True)
+                        
+                        col_sb1, col_sb2 = st.columns([1, 1])
+                        with col_sb1:
+                            s_buf = io.BytesIO()
+                            with pd.ExcelWriter(s_buf, engine='openpyxl') as writer:
+                                sch_disp_with_total.to_excel(writer, index=False, sheet_name=str(sel_mbu_mandal)[:31])
+                            st.download_button(
+                                f"📥 Download {sel_mbu_mandal} MBU School Report (Excel)", 
+                                data=s_buf.getvalue(), 
+                                file_name=f"{sel_mbu_mandal}_MBU_Pending_Report.xlsx",
+                                use_container_width=True
+                            )
+                        with col_sb2:
+                            render_print_button(sch_disp_with_total, report_title=f"{sel_mbu_mandal} MANDAL - SCHOOL-WISE MBU PENDING REPORT", subtitle="School-wise Biometric Pending Details")
 
 # ==========================================
 # ------------ TAB 2: TEACHERS ------------
@@ -546,7 +658,6 @@ with tab3:
                 cols_order = ['Mandal', 'Total Vacancies'] + [c for c in cadre_cols_cleaned if c != 'Total Vacancies']
                 display_vac_df = display_vac_df[cols_order]
                 
-                # Append District Total row
                 display_vac_with_total = append_total_row(display_vac_df, label_col='Mandal', total_label='DISTRICT TOTAL')
                 st.dataframe(display_vac_with_total, use_container_width=True, hide_index=True)
                 
