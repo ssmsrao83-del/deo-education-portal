@@ -252,6 +252,7 @@ def load_mbu_data(file_path):
         for col in df_m.columns:
             if 'MANAGEMENT' in col.upper():
                 df_m['Management_Display'] = df_m[col].apply(lambda x: clean_and_map(x, MANAGEMENT_MAPPING))
+                df_m['Merged_Management'] = df_m[col].apply(get_merged_mgmt)
             if 'CATEGORY' in col.upper():
                 df_m['Category_Display'] = df_m[col].apply(lambda x: clean_and_map(x, CATEGORY_MAPPING))
 
@@ -261,6 +262,8 @@ def load_mbu_data(file_path):
         val_5_15 = clean_num(df_m[p5_15_col]) if p5_15_col else 0
         val_15_p = clean_num(df_m[p15_p_col]) if p15_p_col else 0
         
+        df_m['MBU_P_5_15'] = val_5_15
+        df_m['MBU_P_15_PLUS'] = val_15_p
         df_m['Total_MBU_Pending'] = val_5_15 + val_15_p
         
         if df_m['Total_MBU_Pending'].sum() == 0:
@@ -472,7 +475,6 @@ with tab1:
                 ["ALL MANAGEMENTS (Total District)", "STATE GOVT Only", "AIDED Only", "PRIVATE Only", "COMPARATIVE VIEW (Govt vs Aided vs Pvt Total Roll)"]
             )
 
-            # TOP MANDAL-WISE TABLE (UNDISTURBED)
             if mgmt_choice == "COMPARATIVE VIEW (Govt vs Aided vs Pvt Total Roll)":
                 piv_s = df_clean.pivot_table(index=block_col, columns='Merged_Management', values=udise_col, aggfunc='count', fill_value=0)
                 piv_b = df_clean.pivot_table(index=block_col, columns='Merged_Management', values=boys_col, aggfunc='sum', fill_value=0)
@@ -585,7 +587,6 @@ with tab1:
                         subtitle="PP (1-3), 1-5 (Pr/UP/HS), 6-8 (UP), 6-10 (HS), 11-12 (Colleges)"
                     )
 
-            # --- KOTHTHA REPORT: DISTRICT MANAGEMENT-WISE SUMMARY (GOVT / AIDED / PVT) ---
             st.markdown("---")
             st.markdown("#### 🏛️ District Management-wise Stage Abstract (Govt vs Aided vs Pvt)")
             st.caption("District-level consolidation across Pre-Primary, Primary, Upper Primary, High School & College Stages")
@@ -611,7 +612,6 @@ with tab1:
                 'COL_11_12_B': '11-12 Col Boys', 'COL_11_12_G': '11-12 Col Girls', 'COL_11_12_T': '11-12 Col Total'
             })
 
-            # Custom sort order: STATE GOVT, AIDED, PRIVATE
             order_map = {'STATE GOVT': 1, 'AIDED': 2, 'PRIVATE': 3}
             dist_mgmt_summary['order'] = dist_mgmt_summary['Management'].map(lambda x: order_map.get(x, 4))
             dist_mgmt_summary = dist_mgmt_summary.sort_values(by='order').drop(columns=['order'])
@@ -680,7 +680,7 @@ with tab1:
             with col_cf2:
                 render_print_button(filtered_df.head(100), report_title="CUSTOM UDISE REPORT", subtitle=f"Total Schools: {len(filtered_df)}")
 
-        # --- SUBTAB 4: MANDATORY BIOMETRIC PENDING ---
+        # --- SUBTAB 4: MANDATORY BIOMETRIC PENDING (MERGED MANAGEMENT INTEGRATED) ---
         with subtab4:
             st.subheader("⏳ Mandatory Biometric Update (MBU) Pending Analysis")
             if df_mbu is None:
@@ -691,8 +691,6 @@ with tab1:
                 mbu_udise_col = next((c for c in df_mbu.columns if 'UDISE' in c.upper()), None)
                 mbu_school_col = next((c for c in df_mbu.columns if 'SCHOOL' in c.upper() and 'CATEGORY' not in c.upper() and 'MANAGEMENT' not in c.upper()), None)
                 
-                p5_15_col = next((c for c in df_mbu.columns if '5-15' in c or ('PENDING' in c.upper() and '5' in c)), None)
-                p15_plus_col = next((c for c in df_mbu.columns if '15 AND ABOVE' in c.upper() or '15+' in c or ('PENDING' in c.upper() and 'ABOVE' in c.upper())), None)
                 tot_stu_col = next((c for c in df_mbu.columns if 'TOTAL STUDENT' in c.upper() or 'TOTAL' in c.upper()), None)
                 passed_col = next((c for c in df_mbu.columns if 'PASSED' in c.upper()), None)
                 failed_col = next((c for c in df_mbu.columns if 'FAILED' in c.upper()), None)
@@ -706,48 +704,66 @@ with tab1:
                 mb_m3.metric("Total District Schools Tracked", f"{len(df_mbu):,}")
 
                 mbu_view1, mbu_view2 = st.tabs([
-                    "📊 Mandal-wise & Management-wise Abstract", 
+                    "📊 Mandal-wise Merged Management MBU Abstract", 
                     "🏫 Mandal-wise School Detailed List"
                 ])
 
                 with mbu_view1:
-                    st.markdown("##### 📌 Mandal & Management-wise Pending Students Matrix")
-                    if mbu_block_col and mbu_mgmt_col:
-                        df_mbu['Total_MBU_Pending'] = pd.to_numeric(df_mbu['Total_MBU_Pending'], errors='coerce').fillna(0)
+                    st.markdown("##### 📌 Mandal-wise: Govt, Aided & Private MBU Pending (5-15 & 15+)")
+                    if mbu_block_col and 'Merged_Management' in df_mbu.columns:
+                        mbu_clean = df_mbu.copy()
                         
-                        pivot_mbu = df_mbu.pivot_table(
-                            index=mbu_block_col,
-                            columns=mbu_mgmt_col,
-                            values='Total_MBU_Pending',
-                            aggfunc='sum',
-                            fill_value=0
-                        ).reset_index()
-                        
-                        mgmt_cols_in_pivot = [c for c in pivot_mbu.columns if c != mbu_block_col]
-                        pivot_mbu['Total Pending'] = pivot_mbu[mgmt_cols_in_pivot].sum(axis=1)
-                        pivot_mbu = pivot_mbu.rename(columns={mbu_block_col: 'Mandal (Block)'})
-                        
-                        ordered_cols = ['Mandal (Block)', 'Total Pending'] + mgmt_cols_in_pivot
-                        pivot_mbu = pivot_mbu[ordered_cols]
-                        
-                        pivot_mbu_with_total = append_total_row(pivot_mbu, label_col='Mandal (Block)', total_label='DISTRICT TOTAL')
-                        st.dataframe(pivot_mbu_with_total, use_container_width=True, hide_index=True)
-                        
+                        # Pivot for 5-15 and 15+ across Govt, Aided, Private
+                        piv_5_15 = mbu_clean.pivot_table(index=mbu_block_col, columns='Merged_Management', values='MBU_P_5_15', aggfunc='sum', fill_value=0)
+                        piv_15_p = mbu_clean.pivot_table(index=mbu_block_col, columns='Merged_Management', values='MBU_P_15_PLUS', aggfunc='sum', fill_value=0)
+
+                        mbu_records = []
+                        for m_name in sorted(mbu_clean[mbu_block_col].unique()):
+                            g_5 = int(piv_5_15.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_5_15.columns and m_name in piv_5_15.index else 0
+                            g_15 = int(piv_15_p.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_15_p.columns and m_name in piv_15_p.index else 0
+                            g_tot = g_5 + g_15
+
+                            a_5 = int(piv_5_15.loc[m_name, 'AIDED']) if 'AIDED' in piv_5_15.columns and m_name in piv_5_15.index else 0
+                            a_15 = int(piv_15_p.loc[m_name, 'AIDED']) if 'AIDED' in piv_15_p.columns and m_name in piv_15_p.index else 0
+                            a_tot = a_5 + a_15
+
+                            p_5 = int(piv_5_15.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_5_15.columns and m_name in piv_5_15.index else 0
+                            p_15 = int(piv_15_p.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_15_p.columns and m_name in piv_15_p.index else 0
+                            p_tot = p_5 + p_15
+
+                            tot_5 = g_5 + a_5 + p_5
+                            tot_15 = g_15 + a_15 + p_15
+                            grand_pend = tot_5 + tot_15
+
+                            mbu_records.append({
+                                "Mandal (Block)": m_name,
+                                "Govt (5-15)": g_5, "Govt (15+)": g_15, "Govt Total": g_tot,
+                                "Aided (5-15)": a_5, "Aided (15+)": a_15, "Aided Total": a_tot,
+                                "Pvt (5-15)": p_5, "Pvt (15+)": p_15, "Pvt Total": p_tot,
+                                "Total (5-15)": tot_5, "Total (15+)": tot_15, "Grand Total Pending": grand_pend
+                            })
+
+                        mbu_mgmt_df = pd.DataFrame(mbu_records)
+                        mbu_mgmt_df_total = append_total_row(mbu_mgmt_df, label_col="Mandal (Block)", total_label="DISTRICT TOTAL")
+                        st.dataframe(mbu_mgmt_df_total, use_container_width=True, hide_index=True)
+
                         col_pb1, col_pb2 = st.columns([1, 1])
                         with col_pb1:
                             p_buf = io.BytesIO()
                             with pd.ExcelWriter(p_buf, engine='openpyxl') as writer:
-                                pivot_mbu_with_total.to_excel(writer, index=False, sheet_name='MBU_Matrix')
+                                mbu_mgmt_df_total.to_excel(writer, index=False, sheet_name='MBU_Management_Matrix')
                             st.download_button(
-                                "📥 Download MBU Abstract Matrix as Excel", 
+                                "📥 Download MBU Merged Management Matrix as Excel", 
                                 data=p_buf.getvalue(), 
-                                file_name="Mandal_Management_MBU_Pending.xlsx",
+                                file_name="Mandal_Management_MBU_Pending_5_15.xlsx",
                                 use_container_width=True
                             )
                         with col_pb2:
-                            render_print_button(pivot_mbu_with_total, report_title="MANDAL & MANAGEMENT-WISE MBU PENDING MATRIX", subtitle="West Godavari District")
-                    else:
-                        st.info("Mandal leda Management columns kanipinchaledhu.")
+                            render_print_button(
+                                mbu_mgmt_df_total, 
+                                report_title="MANDAL-WISE MERGED MANAGEMENT MBU PENDING ABSTRACT", 
+                                subtitle="Govt vs Aided vs Private (5-15 & 15+ Pending)"
+                            )
 
                 with mbu_view2:
                     st.markdown("##### 🔍 School-wise Pending Details by Mandal")
@@ -783,12 +799,12 @@ with tab1:
                         if failed_col:
                             display_cols.append(failed_col)
                             rename_disp[failed_col] = 'Aadhaar Failed'
-                        if p5_15_col:
-                            display_cols.append(p5_15_col)
-                            rename_disp[p5_15_col] = 'MBU Pending (5-15)'
-                        if p15_plus_col:
-                            display_cols.append(p15_plus_col)
-                            rename_disp[p15_plus_col] = 'MBU Pending (15+)'
+                        if 'MBU_P_5_15' in m_filter_df.columns:
+                            display_cols.append('MBU_P_5_15')
+                            rename_disp['MBU_P_5_15'] = 'MBU Pending (5-15)'
+                        if 'MBU_P_15_PLUS' in m_filter_df.columns:
+                            display_cols.append('MBU_P_15_PLUS')
+                            rename_disp['MBU_P_15_PLUS'] = 'MBU Pending (15+)'
                         
                         display_cols.append('Total_MBU_Pending')
                         rename_disp['Total_MBU_Pending'] = 'Grand Total Pending'
