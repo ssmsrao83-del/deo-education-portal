@@ -337,9 +337,9 @@ with tab1:
         c11_12_b = get_cols([11, 12], 'BOY')
         c11_12_g = get_cols([11, 12], 'GIRL')
 
-        # Precompute stages on base dataframe
         cat_series = df['Category_Code'] if 'Category_Code' in df.columns else pd.Series(0, index=df.index)
         
+        # Stages Calculation per school
         mask_1_5 = cat_series.isin([1, 2, 3, 6])
         df['P_1_5_B'] = np.where(mask_1_5, calc_sum(df, c1_5_b), 0)
         df['P_1_5_G'] = np.where(mask_1_5, calc_sum(df, c1_5_g), 0)
@@ -360,11 +360,10 @@ with tab1:
         df['COL_11_12_G'] = np.where(mask_11_12, calc_sum(df, c11_12_g), 0)
         df['COL_11_12_T'] = df['COL_11_12_B'] + df['COL_11_12_G']
 
-        # 5 SUB-TABS
-        subtab1, subtab2, subtab2_ext, subtab3, subtab4 = st.tabs([
+        # 4 SUB-TABS
+        subtab1, subtab2, subtab3, subtab4 = st.tabs([
             "🔍 School 360° Search", 
-            "📊 Mandal-wise Abstract", 
-            "🏫 School-wise Stage Breakdown by Mandal",
+            "📊 Mandal-wise Stage & Management Abstract", 
             "📑 Custom Reports & Excel Export",
             "⏳ Mandatory Biometric (MBU) Pending"
         ])
@@ -438,104 +437,85 @@ with tab1:
                         with col_t2:
                             st.bar_chart(cdf.set_index("Class")[["Boys 👦", "Girls 👧"]])
                     else:
-                        st.info("Ee paatasaalaku sambandhinchina tharagathula vivaraalu labhinchaledhu.")
+                        st.info("ఈ పాఠశాలకు సంబంధించిన తరగతుల వివరాలు లభించలేదు.")
                 else:
-                    st.warning("Ee UDISE code tho record kanabada ledhu.")
+                    st.warning("ఈ UDISE కోడ్ తో రికార్డు కనబడలేదు.")
 
-        # --- SUBTAB 2: MANDAL-WISE ABSTRACT ---
+        # --- SUBTAB 2: MANDAL-WISE STAGE & MANAGEMENT ABSTRACT ---
         with subtab2:
-            st.subheader("📊 Mandal-wise Enrolment Abstract")
+            st.subheader("📊 Mandal-wise Stage & Management-wise Enrolment Abstract")
 
-            view_type = st.radio(
-                "Select Abstract Format:", 
-                ["🏢 General Abstract (Merged Management with Boys & Girls)", "📋 Stage-wise Detailed Abstract (1-5, 6-8 UP, 6-10 HS, 11-12 Col)"], 
-                horizontal=True
+            # Clean real mandals
+            df_clean = df[~df[block_col].astype(str).str.match(r'^\(?\d+\)?$|^nan$', case=False)].copy()
+            df_clean = df_clean[df_clean[block_col].astype(str).str.len() > 2]
+
+            mgmt_choice = st.selectbox(
+                "Select Management to View Stage Breakdown (1-5, 6-8, 6-10, 11-12):",
+                ["ALL MANAGEMENTS (Total District)", "STATE GOVT Only", "AIDED Only", "PRIVATE Only", "COMPARATIVE VIEW (Govt vs Aided vs Pvt Total Roll)"]
             )
 
-            if "Merged Management" in view_type:
-                mgmt_filter = st.selectbox(
-                    "Select Management View:", 
-                    ["ALL MANAGEMENTS (Comparative Matrix)", "STATE GOVT Only", "AIDED Only", "PRIVATE Only"]
-                )
+            if mgmt_choice == "COMPARATIVE VIEW (Govt vs Aided vs Pvt Total Roll)":
+                piv_s = df_clean.pivot_table(index=block_col, columns='Merged_Management', values=udise_col, aggfunc='count', fill_value=0)
+                piv_b = df_clean.pivot_table(index=block_col, columns='Merged_Management', values=boys_col, aggfunc='sum', fill_value=0)
+                piv_g = df_clean.pivot_table(index=block_col, columns='Merged_Management', values=girls_col, aggfunc='sum', fill_value=0)
+                piv_r = df_clean.pivot_table(index=block_col, columns='Merged_Management', values=tot_col, aggfunc='sum', fill_value=0)
 
-                df_calc = df.copy()
-                df_calc = df_calc[~df_calc[block_col].astype(str).str.match(r'^\(?\d+\)?$|^nan$', case=False)]
-                df_calc = df_calc[df_calc[block_col].astype(str).str.len() > 2]
+                records = []
+                for m_name in sorted(df_clean[block_col].unique()):
+                    sg_s = int(piv_s.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_s.columns and m_name in piv_s.index else 0
+                    sg_b = int(piv_b.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_b.columns and m_name in piv_b.index else 0
+                    sg_g = int(piv_g.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_g.columns and m_name in piv_g.index else 0
+                    sg_r = int(piv_r.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_r.columns and m_name in piv_r.index else 0
 
-                if mgmt_filter == "ALL MANAGEMENTS (Comparative Matrix)":
-                    piv_s = df_calc.pivot_table(index=block_col, columns='Merged_Management', values=udise_col, aggfunc='count', fill_value=0)
-                    piv_b = df_calc.pivot_table(index=block_col, columns='Merged_Management', values=boys_col, aggfunc='sum', fill_value=0)
-                    piv_g = df_calc.pivot_table(index=block_col, columns='Merged_Management', values=girls_col, aggfunc='sum', fill_value=0)
-                    piv_r = df_calc.pivot_table(index=block_col, columns='Merged_Management', values=tot_col, aggfunc='sum', fill_value=0)
+                    ai_s = int(piv_s.loc[m_name, 'AIDED']) if 'AIDED' in piv_s.columns and m_name in piv_s.index else 0
+                    ai_b = int(piv_b.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_b.index else 0
+                    ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_g.columns and m_name in piv_g.index else 0
+                    ai_r = int(piv_r.loc[m_name, 'AIDED']) if 'AIDED' in piv_r.columns and m_name in piv_r.index else 0
 
-                    records = []
-                    for m_name in sorted(df_calc[block_col].unique()):
-                        sg_s = int(piv_s.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_s.columns and m_name in piv_s.index else 0
-                        sg_b = int(piv_b.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_b.columns and m_name in piv_b.index else 0
-                        sg_g = int(piv_g.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_g.columns and m_name in piv_g.index else 0
-                        sg_r = int(piv_r.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_r.columns and m_name in piv_r.index else 0
+                    pr_s = int(piv_s.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_s.columns and m_name in piv_s.index else 0
+                    pr_b = int(piv_b.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_b.index else 0
+                    pr_g = int(piv_g.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_g.columns and m_name in piv_g.index else 0
+                    pr_r = int(piv_r.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_r.columns and m_name in piv_r.index else 0
 
-                        ai_s = int(piv_s.loc[m_name, 'AIDED']) if 'AIDED' in piv_s.columns and m_name in piv_s.index else 0
-                        ai_b = int(piv_b.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_b.index else 0
-                        ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_g.columns and m_name in piv_g.index else 0
-                        ai_r = int(piv_r.loc[m_name, 'AIDED']) if 'AIDED' in piv_r.columns and m_name in piv_r.index else 0
+                    records.append({
+                        "Mandal (Block)": m_name,
+                        "Govt Sch": sg_s, "Govt Boys": sg_b, "Govt Girls": sg_g, "Govt Total": sg_r,
+                        "Aided Sch": ai_s, "Aided Boys": ai_b, "Aided Girls": ai_g, "Aided Total": ai_r,
+                        "Pvt Sch": pr_s, "Pvt Boys": pr_b, "Pvt Girls": pr_g, "Pvt Total": pr_r,
+                        "Total Sch": sg_s + ai_s + pr_s, 
+                        "Grand Total Boys": sg_b + ai_b + pr_b, 
+                        "Grand Total Girls": sg_g + ai_g + pr_g, 
+                        "Grand Total Roll": sg_r + ai_r + pr_r
+                    })
 
-                        pr_s = int(piv_s.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_s.columns and m_name in piv_s.index else 0
-                        pr_b = int(piv_b.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_b.index else 0
-                        pr_g = int(piv_g.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_g.columns and m_name in piv_g.index else 0
-                        pr_r = int(piv_r.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_r.columns and m_name in piv_r.index else 0
+                res_df = pd.DataFrame(records)
+                res_df_total = append_total_row(res_df, label_col="Mandal (Block)", total_label="DISTRICT TOTAL")
+                st.dataframe(res_df_total, use_container_width=True, hide_index=True)
 
-                        tot_s = sg_s + ai_s + pr_s
-                        tot_b = sg_b + ai_b + pr_b
-                        tot_g = sg_g + ai_g + pr_g
-                        tot_r = sg_r + ai_r + pr_r
-
-                        records.append({
-                            "Mandal (Block)": m_name,
-                            "Govt Sch": sg_s, "Govt Boys": sg_b, "Govt Girls": sg_g, "Govt Total": sg_r,
-                            "Aided Sch": ai_s, "Aided Boys": ai_b, "Aided Girls": ai_g, "Aided Total": ai_r,
-                            "Pvt Sch": pr_s, "Pvt Boys": pr_b, "Pvt Girls": pr_g, "Pvt Total": pr_r,
-                            "Total Sch": tot_s, "Grand Total Boys": tot_b, "Grand Total Girls": tot_g, "Grand Total Roll": tot_r
-                        })
-
-                    res_df = pd.DataFrame(records)
-                    res_df_total = append_total_row(res_df, label_col="Mandal (Block)", total_label="DISTRICT TOTAL")
-                    st.dataframe(res_df_total, use_container_width=True, hide_index=True)
-
-                    col_btn1, col_btn2 = st.columns([1, 1])
-                    with col_btn1:
-                        m_buf = io.BytesIO()
-                        with pd.ExcelWriter(m_buf, engine='openpyxl') as writer:
-                            res_df_total.to_excel(writer, index=False, sheet_name='Merged_Mgmt_Abstract')
-                        st.download_button("📥 Download Merged Management Abstract (Excel)", data=m_buf.getvalue(), file_name="Mandal_Merged_Management_Abstract.xlsx", use_container_width=True)
-                    with col_btn2:
-                        render_print_button(res_df_total, report_title="MANDAL-WISE MERGED MANAGEMENT ABSTRACT", subtitle="State Govt | Aided | Private with Boys & Girls")
-
-                else:
-                    target_mgmt = mgmt_filter.replace(" Only", "").strip()
-                    df_sub = df_calc[df_calc['Merged_Management'] == target_mgmt]
-                    
-                    m_grp = df_sub.groupby(block_col).agg({
-                        udise_col: 'count',
-                        boys_col: 'sum',
-                        girls_col: 'sum',
-                        tot_col: 'sum'
-                    }).reset_index()
-
-                    m_grp.columns = ['Mandal (Block)', 'Schools', 'Total Boys', 'Total Girls', 'Grand Total Enrolment']
-                    m_grp_total = append_total_row(m_grp, label_col="Mandal (Block)", total_label="DISTRICT TOTAL")
-                    st.dataframe(m_grp_total, use_container_width=True, hide_index=True)
-
-                    col_btn1, col_btn2 = st.columns([1, 1])
-                    with col_btn1:
-                        m_buf = io.BytesIO()
-                        with pd.ExcelWriter(m_buf, engine='openpyxl') as writer:
-                            m_grp_total.to_excel(writer, index=False, sheet_name=target_mgmt[:31])
-                        st.download_button(f"📥 Download {target_mgmt} Abstract (Excel)", data=m_buf.getvalue(), file_name=f"Mandal_{target_mgmt}_Abstract.xlsx", use_container_width=True)
-                    with col_btn2:
-                        render_print_button(m_grp_total, report_title=f"MANDAL-WISE ABSTRACT - {target_mgmt}", subtitle="Schools, Boys, Girls & Total Enrolment")
+                col_btn1, col_btn2 = st.columns([1, 1])
+                with col_btn1:
+                    m_buf = io.BytesIO()
+                    with pd.ExcelWriter(m_buf, engine='openpyxl') as writer:
+                        res_df_total.to_excel(writer, index=False, sheet_name='Comparative_Abstract')
+                    st.download_button("📥 Download Comparative Abstract (Excel)", data=m_buf.getvalue(), file_name="Mandal_Comparative_Management_Abstract.xlsx", use_container_width=True)
+                with col_btn2:
+                    render_print_button(res_df_total, report_title="MANDAL-WISE MANAGEMENT COMPARATIVE ABSTRACT", subtitle="Govt vs Aided vs Private")
 
             else:
+                # Filter by Management if specific one is selected
+                if mgmt_choice == "STATE GOVT Only":
+                    df_target = df_clean[df_clean['Merged_Management'] == 'STATE GOVT']
+                    label_sub = "STATE GOVT"
+                elif mgmt_choice == "AIDED Only":
+                    df_target = df_clean[df_clean['Merged_Management'] == 'AIDED']
+                    label_sub = "AIDED"
+                elif mgmt_choice == "PRIVATE Only":
+                    df_target = df_clean[df_clean['Merged_Management'] == 'PRIVATE']
+                    label_sub = "PRIVATE"
+                else:
+                    df_target = df_clean
+                    label_sub = "ALL MANAGEMENTS"
+
                 agg_dict = {
                     udise_col: 'count', tot_col: 'sum',
                     'P_1_5_B': 'sum', 'P_1_5_G': 'sum', 'P_1_5_T': 'sum',
@@ -544,10 +524,10 @@ with tab1:
                     'COL_11_12_B': 'sum', 'COL_11_12_G': 'sum', 'COL_11_12_T': 'sum'
                 }
 
-                mandal_stage_summary = df.groupby(block_col).agg(agg_dict).reset_index()
-                mandal_stage_summary = mandal_stage_summary.rename(columns={
+                mandal_res = df_target.groupby(block_col).agg(agg_dict).reset_index()
+                mandal_res = mandal_res.rename(columns={
                     block_col: 'Mandal (Block)',
-                    udise_col: 'Total Schools',
+                    udise_col: 'Schools',
                     tot_col: 'Grand Total Roll',
                     'P_1_5_B': '1-5 Boys', 'P_1_5_G': '1-5 Girls', 'P_1_5_T': '1-5 Total',
                     'UP_6_8_B': '6-8 UP Boys', 'UP_6_8_G': '6-8 UP Girls', 'UP_6_8_T': '6-8 UP Total',
@@ -555,19 +535,14 @@ with tab1:
                     'COL_11_12_B': '11-12 Col Boys', 'COL_11_12_G': '11-12 Col Girls', 'COL_11_12_T': '11-12 Col Total'
                 })
 
-                mandal_stage_summary = mandal_stage_summary[
-                    ~mandal_stage_summary['Mandal (Block)'].astype(str).str.match(r'^\(?\d+\)?$|^nan$', case=False)
-                ]
-                mandal_stage_summary = mandal_stage_summary[mandal_stage_summary['Mandal (Block)'].astype(str).str.len() > 2]
-
                 stage_cols = [
-                    'Mandal (Block)', 'Total Schools', 'Grand Total Roll',
+                    'Mandal (Block)', 'Schools', 'Grand Total Roll',
                     '1-5 Boys', '1-5 Girls', '1-5 Total',
                     '6-8 UP Boys', '6-8 UP Girls', '6-8 UP Total',
                     '6-10 HS Boys', '6-10 HS Girls', '6-10 HS Total',
                     '11-12 Col Boys', '11-12 Col Girls', '11-12 Col Total'
                 ]
-                display_df = mandal_stage_summary[stage_cols]
+                display_df = mandal_res[stage_cols]
                 display_df_total = append_total_row(display_df, label_col='Mandal (Block)', total_label='DISTRICT TOTAL')
                 st.dataframe(display_df_total, use_container_width=True, hide_index=True)
 
@@ -575,79 +550,19 @@ with tab1:
                 with col_btn1:
                     m_buf = io.BytesIO()
                     with pd.ExcelWriter(m_buf, engine='openpyxl') as writer:
-                        display_df_total.to_excel(writer, index=False, sheet_name='Stage_Wise_Abstract')
-                    st.download_button("📥 Download Stage-wise Abstract Excel", data=m_buf.getvalue(), file_name="Mandal_Stage_Wise_Enrolment.xlsx", use_container_width=True)
+                        display_df_total.to_excel(writer, index=False, sheet_name=label_sub[:31])
+                    st.download_button(
+                        f"📥 Download {label_sub} Stage Abstract Excel", 
+                        data=m_buf.getvalue(), 
+                        file_name=f"Mandal_{label_sub}_Stage_Wise_Enrolment.xlsx", 
+                        use_container_width=True
+                    )
                 with col_btn2:
-                    render_print_button(display_df_total, report_title="MANDAL-WISE STAGE-WISE ENROLMENT ABSTRACT", subtitle="1-5 (Pr/UP/HS), 6-8 (UP), 6-10 (HS), 11-12 (Colleges)")
-
-        # --- NEW SUBTAB: SCHOOL-WISE STAGE BREAKDOWN BY MANDAL & MERGED MANAGEMENT ---
-        with subtab2_ext:
-            st.subheader("🏫 School-wise Stage Breakdown by Mandal")
-            
-            m_list_stage = sorted([
-                str(m) for m in df[block_col].dropna().unique() 
-                if len(str(m).strip()) >= 3 and not str(m).strip().startswith('(')
-            ])
-            
-            c_f1, c_f2 = st.columns(2)
-            with c_f1:
-                sel_stg_mandal = st.selectbox("Select Mandal:", m_list_stage, key="stg_mandal_selector")
-            with c_f2:
-                sel_stg_mgmt = st.selectbox(
-                    "Filter by Merged Management:", 
-                    ["ALL (State Govt + Aided + Private)", "STATE GOVT Only", "AIDED Only", "PRIVATE Only"], 
-                    key="stg_mgmt_selector"
-                )
-
-            # Filter data for selected mandal
-            df_m_schools = df[df[block_col] == sel_stg_mandal].copy()
-            if sel_stg_mgmt != "ALL (State Govt + Aided + Private)":
-                target_m = sel_stg_mgmt.replace(" Only", "").strip()
-                df_m_schools = df_m_schools[df_m_schools['Merged_Management'] == target_m]
-
-            cols_req = [
-                udise_col, school_col, 'Merged_Management',
-                'P_1_5_B', 'P_1_5_G', 'P_1_5_T',
-                'UP_6_8_B', 'UP_6_8_G', 'UP_6_8_T',
-                'HS_6_10_B', 'HS_6_10_G', 'HS_6_10_T',
-                'COL_11_12_B', 'COL_11_12_G', 'COL_11_12_T',
-                tot_col
-            ]
-            
-            # Map column names to display headers
-            rename_dict = {
-                udise_col: 'UDISE Code',
-                school_col: 'School Name',
-                'Merged_Management': 'Management',
-                'P_1_5_B': '1-5 Boys', 'P_1_5_G': '1-5 Girls', 'P_1_5_T': '1-5 Total',
-                'UP_6_8_B': '6-8 UP Boys', 'UP_6_8_G': '6-8 UP Girls', 'UP_6_8_T': '6-8 UP Total',
-                'HS_6_10_B': '6-10 HS Boys', 'HS_6_10_G': '6-10 HS Girls', 'HS_6_10_T': '6-10 HS Total',
-                'COL_11_12_B': '11-12 Col Boys', 'COL_11_12_G': '11-12 Col Girls', 'COL_11_12_T': '11-12 Col Total',
-                tot_col: 'Grand Total Roll'
-            }
-
-            df_m_schools_disp = df_m_schools[cols_req].rename(columns=rename_dict)
-            df_m_schools_total = append_total_row(df_m_schools_disp, label_col='School Name', total_label='MANDAL TOTAL')
-            
-            st.dataframe(df_m_schools_total, use_container_width=True, hide_index=True)
-
-            col_sb1, col_sb2 = st.columns([1, 1])
-            with col_sb1:
-                s_buf = io.BytesIO()
-                with pd.ExcelWriter(s_buf, engine='openpyxl') as writer:
-                    df_m_schools_total.to_excel(writer, index=False, sheet_name=str(sel_stg_mandal)[:31])
-                st.download_button(
-                    f"📥 Download {sel_stg_mandal} School Stage Report (Excel)", 
-                    data=s_buf.getvalue(), 
-                    file_name=f"{sel_stg_mandal}_School_Stage_Breakdown.xlsx",
-                    use_container_width=True
-                )
-            with col_sb2:
-                render_print_button(
-                    df_m_schools_total, 
-                    report_title=f"{sel_stg_mandal} MANDAL - SCHOOL-WISE STAGE BREAKDOWN", 
-                    subtitle=f"Management: {sel_stg_mgmt} | 1-5, 6-8 UP, 6-10 HS, 11-12 Col"
-                )
+                    render_print_button(
+                        display_df_total, 
+                        report_title=f"MANDAL-WISE STAGE-WISE ABSTRACT - {label_sub}", 
+                        subtitle="1-5 (Pr/UP/HS), 6-8 (UP), 6-10 (HS), 11-12 (Colleges)"
+                    )
 
         with subtab3:
             st.subheader("📑 Custom Reports & Excel Export")
