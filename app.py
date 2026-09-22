@@ -80,7 +80,6 @@ def load_cadre_data(file_path):
             else:
                 new_cols.append(f"{l0} - {l1}")
         df_raw.columns = new_cols
-        # De-duplicate any column names if needed
         df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
         return df_raw
     except Exception as e:
@@ -261,12 +260,11 @@ with tab3:
     if df_cadre is None:
         st.warning(f"⚠️ '{TEACHERS_FILE_PATH}' ఫైల్ సరిగ్గా లోడ్ కాలేదు. దయచేసి ఫైల్ అప్‌లోడ్ అయిందో లేదో తనిఖీ చేయండి.")
     else:
-        # Robust column search
         c_udise = next((c for c in df_cadre.columns if 'UDISE' in str(c).upper()), None)
         c_school = next((c for c in df_cadre.columns if any(k in str(c).upper() for k in ['HS/UPS_NAME', 'SCHOOL', 'NAME'])), None)
         c_mandal = next((c for c in df_cadre.columns if 'MANDAL' in str(c).upper()), None)
         
-        # Categorize columns into Sanctioned, Working, Vacant
+        # Segregate columns by section
         sanc_cols = [c for c in df_cadre.columns if 'SANCTIONED' in str(c).upper() and 'TOTAL' not in str(c).upper()]
         work_cols = [c for c in df_cadre.columns if 'WORKING' in str(c).upper() and 'TOTAL' not in str(c).upper() and 'MTS' not in str(c).upper()]
         vac_cols  = [c for c in df_cadre.columns if 'VACANT' in str(c).upper() and 'TOTAL' not in str(c).upper()]
@@ -274,6 +272,13 @@ with tab3:
         tot_sanc_col = next((c for c in df_cadre.columns if 'SANCTIONED' in str(c).upper() and 'TOTAL' in str(c).upper()), None)
         tot_work_col = next((c for c in df_cadre.columns if 'WORKING' in str(c).upper() and 'TOTAL' in str(c).upper()), None)
         tot_vac_col  = next((c for c in df_cadre.columns if 'VACANT' in str(c).upper() and 'TOTAL' in str(c).upper()), None)
+
+        def normalize_cadre_name(name):
+            n = name.split('-')[-1].strip()
+            # Normalize "Gr II HM e" -> "Gr II HM"
+            if n.lower().startswith('gr ii hm') or n.lower().startswith('gr-ii hm'):
+                return "Gr II HM"
+            return n
 
         c_tab1, c_tab2, c_tab3 = st.tabs([
             "🔍 School Cadre Profile", 
@@ -287,7 +292,6 @@ with tab3:
             
             matched_cadre = pd.DataFrame()
             if cadre_search and c_udise:
-                # Safe single series extraction
                 udise_series = df_cadre[c_udise]
                 if isinstance(udise_series, pd.DataFrame):
                     udise_series = udise_series.iloc[:, 0]
@@ -313,18 +317,27 @@ with tab3:
                 st.markdown("##### 📋 Post-wise Breakup (Sanctioned vs Working vs Vacant)")
                 
                 post_list = []
-                for sc in sanc_cols:
-                    post_name = sc.split('-')[-1].strip() if '-' in sc else sc
-                    wc = next((c for c in work_cols if post_name.upper() in c.upper()), None)
-                    vc = next((c for c in vac_cols if post_name.upper() in c.upper()), None)
+                # Pair columns positionally or via normalized name
+                for idx, sc in enumerate(sanc_cols):
+                    clean_post = normalize_cadre_name(sc)
                     
+                    # 1. Match by positional index if lists are equal length
+                    wc = work_cols[idx] if idx < len(work_cols) else None
+                    vc = vac_cols[idx] if idx < len(vac_cols) else None
+                    
+                    # 2. Or fallback to matching normalized name
+                    if not wc or clean_post.lower() not in normalize_cadre_name(wc).lower():
+                        wc = next((c for c in work_cols if clean_post.lower() == normalize_cadre_name(c).lower()), wc)
+                    if not vc or clean_post.lower() not in normalize_cadre_name(vc).lower():
+                        vc = next((c for c in vac_cols if clean_post.lower() == normalize_cadre_name(c).lower()), vc)
+
                     s_val = int(pd.to_numeric(c_row[sc], errors='coerce')) if pd.notnull(c_row[sc]) else 0
                     w_val = int(pd.to_numeric(c_row[wc], errors='coerce')) if wc and pd.notnull(c_row[wc]) else 0
                     vac_val = int(pd.to_numeric(c_row[vc], errors='coerce')) if vc and pd.notnull(c_row[vc]) else 0
                     
                     if s_val > 0 or w_val > 0 or vac_val > 0:
                         post_list.append({
-                            "Designation / Cadre": post_name,
+                            "Designation / Cadre": clean_post,
                             "Sanctioned": s_val,
                             "Working": w_val,
                             "Vacant": vac_val
@@ -343,7 +356,7 @@ with tab3:
             if vac_cols:
                 vac_summary = []
                 for vc in vac_cols:
-                    p_label = vc.split('-')[-1].strip() if '-' in vc else vc
+                    p_label = normalize_cadre_name(vc)
                     total_v = int(pd.to_numeric(df_cadre[vc], errors='coerce').fillna(0).sum())
                     if total_v > 0:
                         vac_summary.append({"Designation / Post": p_label, "Total Vacancies": total_v})
