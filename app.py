@@ -68,26 +68,25 @@ def load_cadre_data(file_path):
     if not os.path.exists(file_path):
         return None
     try:
-        # Load multi-header sheet
         df_raw = pd.read_excel(file_path, header=[0, 1])
-        
-        # Flatten MultiIndex columns cleanly
         new_cols = []
         for c in df_raw.columns:
-            level0 = str(c[0]).strip()
-            level1 = str(c[1]).strip()
-            if "UNNAMED" in level0.upper() or level0 == "" or "NAN" in level0.upper():
-                new_cols.append(level1)
-            elif "UNNAMED" in level1.upper() or level1 == "" or "NAN" in level1.upper():
-                new_cols.append(level0)
+            l0 = str(c[0]).strip()
+            l1 = str(c[1]).strip()
+            if 'UNNAMED' in l0.upper() or l0 == '' or 'NAN' in l0.upper():
+                new_cols.append(l1)
+            elif 'UNNAMED' in l1.upper() or l1 == '' or 'NAN' in l1.upper():
+                new_cols.append(l0)
             else:
-                new_cols.append(f"{level0} - {level1}")
+                new_cols.append(f"{l0} - {l1}")
         df_raw.columns = new_cols
+        # De-duplicate any column names if needed
+        df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
         return df_raw
     except Exception as e:
-        # Fallback to single row header
         try:
             df_fallback = pd.read_excel(file_path)
+            df_fallback = df_fallback.loc[:, ~df_fallback.columns.duplicated()]
             return df_fallback
         except:
             return None
@@ -202,7 +201,7 @@ with tab1:
                         with col_t2:
                             st.bar_chart(cdf.set_index("Class")[["Boys 👦", "Girls 👧"]])
                     else:
-                        st.info("ఈ పాఠశాలకు సంబంధించిన తరగతుల వివరాలు షీట్‌లో లభించలేదు.")
+                        st.info("ఈ పాఠశాలకు సంబంధించిన తరగతుల వివరాలు లభించలేదు.")
                 else:
                     st.warning("ఈ UDISE కోడ్ తో రికార్డు కనబడలేదు.")
 
@@ -260,21 +259,21 @@ with tab2:
 with tab3:
     st.subheader("📊 Cadre Strength, Working & Vacancy Analysis")
     if df_cadre is None:
-        st.warning(f"⚠️ '{TEACHERS_FILE_PATH}' ఫైల్ GitHub లో ఇంకా లోడ్ కాలేదు లేదా ఫైల్ పేరు సరిపోలలేదు. దయచేసి ఫైల్ అప్‌లోడ్ అయిందో లేదో తనిఖీ చేయండి.")
+        st.warning(f"⚠️ '{TEACHERS_FILE_PATH}' ఫైల్ సరిగ్గా లోడ్ కాలేదు. దయచేసి ఫైల్ అప్‌లోడ్ అయిందో లేదో తనిఖీ చేయండి.")
     else:
-        # Detect identifying columns
-        c_udise = next((c for c in df_cadre.columns if 'UDISE' in c.upper()), None)
-        c_school = next((c for c in df_cadre.columns if 'NAME' in c.upper() or 'HS' in c.upper()), None)
-        c_mandal = next((c for c in df_cadre.columns if 'MANDAL' in c.upper()), None)
+        # Robust column search
+        c_udise = next((c for c in df_cadre.columns if 'UDISE' in str(c).upper()), None)
+        c_school = next((c for c in df_cadre.columns if any(k in str(c).upper() for k in ['HS/UPS_NAME', 'SCHOOL', 'NAME'])), None)
+        c_mandal = next((c for c in df_cadre.columns if 'MANDAL' in str(c).upper()), None)
         
-        # Identify Sanctioned, Working, Vacant columns
-        sanc_cols = [c for c in df_cadre.columns if 'SANCTIONED' in c.upper() and 'TOTAL' not in c.upper()]
-        work_cols = [c for c in df_cadre.columns if 'WORKING' in c.upper() and 'TOTAL' not in c.upper() and 'MTS' not in c.upper()]
-        vac_cols  = [c for c in df_cadre.columns if 'VACANT' in c.upper() and 'TOTAL' not in c.upper()]
+        # Categorize columns into Sanctioned, Working, Vacant
+        sanc_cols = [c for c in df_cadre.columns if 'SANCTIONED' in str(c).upper() and 'TOTAL' not in str(c).upper()]
+        work_cols = [c for c in df_cadre.columns if 'WORKING' in str(c).upper() and 'TOTAL' not in str(c).upper() and 'MTS' not in str(c).upper()]
+        vac_cols  = [c for c in df_cadre.columns if 'VACANT' in str(c).upper() and 'TOTAL' not in str(c).upper()]
         
-        tot_sanc_col = next((c for c in df_cadre.columns if 'SANCTIONED' in c.upper() and 'TOTAL' in c.upper()), None)
-        tot_work_col = next((c for c in df_cadre.columns if 'WORKING' in c.upper() and 'TOTAL' in c.upper()), None)
-        tot_vac_col  = next((c for c in df_cadre.columns if 'VACANT' in c.upper() and 'TOTAL' in c.upper()), None)
+        tot_sanc_col = next((c for c in df_cadre.columns if 'SANCTIONED' in str(c).upper() and 'TOTAL' in str(c).upper()), None)
+        tot_work_col = next((c for c in df_cadre.columns if 'WORKING' in str(c).upper() and 'TOTAL' in str(c).upper()), None)
+        tot_vac_col  = next((c for c in df_cadre.columns if 'VACANT' in str(c).upper() and 'TOTAL' in str(c).upper()), None)
 
         c_tab1, c_tab2, c_tab3 = st.tabs([
             "🔍 School Cadre Profile", 
@@ -284,11 +283,15 @@ with tab3:
 
         with c_tab1:
             st.markdown("#### 🏫 Individual School Cadre Strength")
-            cadre_search = st.text_input("Enter UDISE Code or School Name:", value="28153500204", key="cadre_srch")
+            cadre_search = st.text_input("Enter UDISE Code or School Name:", value="28153500204", key="cadre_srch_input")
             
             matched_cadre = pd.DataFrame()
             if cadre_search and c_udise:
-                matched_cadre = df_cadre[df_cadre[c_udise].astype(str).str.contains(str(cadre_search).strip(), na=False)]
+                # Safe single series extraction
+                udise_series = df_cadre[c_udise]
+                if isinstance(udise_series, pd.DataFrame):
+                    udise_series = udise_series.iloc[:, 0]
+                matched_cadre = df_cadre[udise_series.astype(str).str.contains(str(cadre_search).strip(), na=False)]
             
             if not matched_cadre.empty:
                 c_row = matched_cadre.iloc[0]
@@ -297,11 +300,10 @@ with tab3:
                 
                 st.success(f"### 🏫 {s_name} ({m_name} Mandal)")
                 
-                # Metrics
                 col_m1, col_m2, col_m3 = st.columns(3)
-                v_sanc = int(pd.to_numeric(c_row[tot_sanc_col], errors='coerce')) if tot_sanc_col else 0
-                v_work = int(pd.to_numeric(c_row[tot_work_col], errors='coerce')) if tot_work_col else 0
-                v_vac  = int(pd.to_numeric(c_row[tot_vac_col], errors='coerce')) if tot_vac_col else 0
+                v_sanc = int(pd.to_numeric(c_row[tot_sanc_col], errors='coerce')) if tot_sanc_col and pd.notnull(c_row[tot_sanc_col]) else 0
+                v_work = int(pd.to_numeric(c_row[tot_work_col], errors='coerce')) if tot_work_col and pd.notnull(c_row[tot_work_col]) else 0
+                v_vac  = int(pd.to_numeric(c_row[tot_vac_col], errors='coerce')) if tot_vac_col and pd.notnull(c_row[tot_vac_col]) else 0
                 
                 col_m1.metric("Sanctioned Posts", v_sanc)
                 col_m2.metric("Working Staff 👥", v_work)
@@ -310,11 +312,9 @@ with tab3:
                 st.markdown("---")
                 st.markdown("##### 📋 Post-wise Breakup (Sanctioned vs Working vs Vacant)")
                 
-                # Build post-wise comparison table
                 post_list = []
                 for sc in sanc_cols:
                     post_name = sc.split('-')[-1].strip() if '-' in sc else sc
-                    # Find corresponding working and vacant columns
                     wc = next((c for c in work_cols if post_name.upper() in c.upper()), None)
                     vc = next((c for c in vac_cols if post_name.upper() in c.upper()), None)
                     
@@ -341,7 +341,6 @@ with tab3:
         with c_tab2:
             st.markdown("#### 📌 District / Mandal-wise Vacancy by Subject & Cadre")
             if vac_cols:
-                # Calculate total vacancies per cadre
                 vac_summary = []
                 for vc in vac_cols:
                     p_label = vc.split('-')[-1].strip() if '-' in vc else vc
@@ -357,12 +356,11 @@ with tab3:
                     with v_col2:
                         st.bar_chart(vdf.set_index("Designation / Post"))
                 else:
-                    st.info("ఖాతాలో ఎటువంటి ఖాళీలు నమోదు కాలేదు.")
+                    st.info("ఎటువంటి ఖాళీలు నమోదు కాలేదు.")
 
         with c_tab3:
             st.markdown("#### 📑 Mandal-wise Cadre Abstract & Download")
             if c_mandal and tot_sanc_col and tot_work_col and tot_vac_col:
-                # Convert to numeric
                 for c in [tot_sanc_col, tot_work_col, tot_vac_col]:
                     df_cadre[c] = pd.to_numeric(df_cadre[c], errors='coerce').fillna(0)
                 
