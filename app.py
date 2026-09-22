@@ -313,7 +313,6 @@ with tab1:
         mgmt_col = 'Management_Display' if 'Management_Display' in df.columns else next((c for c in df.columns if 'MANAGE' in c.upper()), None)
         cat_col = 'Category_Display' if 'Category_Display' in df.columns else next((c for c in df.columns if 'CATEG' in c.upper()), None)
 
-        # Helpers to separate Pre-Primary (PP) and Classes 1 to 5
         def get_pp_cols(gender):
             res = []
             for c in df.columns:
@@ -326,7 +325,6 @@ with tab1:
             res = []
             for c in df.columns:
                 cu = c.upper()
-                # Exclude Pre-Primary indicators
                 if any(p in cu for p in ['PP', 'PRE', 'LKG', 'UKG', 'NURSERY']):
                     continue
                 for cl in classes:
@@ -340,7 +338,6 @@ with tab1:
                 return pd.Series(0, index=dframe.index)
             return dframe[col_list].apply(pd.to_numeric, errors='coerce').fillna(0).sum(axis=1)
 
-        # Separate column lists
         pp_b = get_pp_cols('BOY')
         pp_g = get_pp_cols('GIRL')
         c1_5_b = get_class_cols([1, 2, 3, 4, 5], 'BOY')
@@ -354,30 +351,30 @@ with tab1:
 
         cat_series = df['Category_Code'] if 'Category_Code' in df.columns else pd.Series(0, index=df.index)
         
-        # 1. Pre-Primary (PP1 to PP3)
+        # 1. Pre-Primary (PP 1-3)
         df['PP_B'] = calc_sum(df, pp_b)
         df['PP_G'] = calc_sum(df, pp_g)
         df['PP_T'] = df['PP_B'] + df['PP_G']
 
-        # 2. Strict Class 1 to 5 (Excluding PP)
+        # 2. Strict Class 1-5 (Excluding PP)
         mask_1_5 = cat_series.isin([1, 2, 3, 6])
         df['P_1_5_B'] = np.where(mask_1_5, calc_sum(df, c1_5_b), 0)
         df['P_1_5_G'] = np.where(mask_1_5, calc_sum(df, c1_5_g), 0)
         df['P_1_5_T'] = df['P_1_5_B'] + df['P_1_5_G']
 
-        # 3. 6-8 Classes (UP Schools: Cat 2 only)
+        # 3. 6-8 UP
         mask_6_8_up = cat_series.isin([2])
         df['UP_6_8_B'] = np.where(mask_6_8_up, calc_sum(df, c6_8_b), 0)
         df['UP_6_8_G'] = np.where(mask_6_8_up, calc_sum(df, c6_8_g), 0)
         df['UP_6_8_T'] = df['UP_6_8_B'] + df['UP_6_8_G']
 
-        # 4. 6-10 Classes (High Schools: Cat 3, 5, 6, 7)
+        # 4. 6-10 HS
         mask_6_10_hs = cat_series.isin([3, 5, 6, 7])
         df['HS_6_10_B'] = np.where(mask_6_10_hs, calc_sum(df, c6_10_b), 0)
         df['HS_6_10_G'] = np.where(mask_6_10_hs, calc_sum(df, c6_10_g), 0)
         df['HS_6_10_T'] = df['HS_6_10_B'] + df['HS_6_10_G']
 
-        # 5. 11-12 Classes (Colleges / Higher Sec: Cat 11, 3, 5)
+        # 5. 11-12 Col
         mask_11_12 = cat_series.isin([11, 3, 5])
         df['COL_11_12_B'] = np.where(mask_11_12, calc_sum(df, c11_12_b), 0)
         df['COL_11_12_G'] = np.where(mask_11_12, calc_sum(df, c11_12_g), 0)
@@ -459,11 +456,11 @@ with tab1:
                         with col_t2:
                             st.bar_chart(cdf.set_index("Class")[["Boys 👦", "Girls 👧"]])
                     else:
-                        st.info("ఈ పాఠశాలకు సంబంధించిన తరగతుల వివరాలు లభించలేదు.")
+                        st.info("Ee paatasaalaku sambandhinchina tharagathula vivaraalu labhinchaledhu.")
                 else:
-                    st.warning("ఈ UDISE కోడ్ తో రికార్డు కనబడలేదు.")
+                    st.warning("Ee UDISE code tho record kanabada ledhu.")
 
-        # --- SUBTAB 2: MANDAL-WISE ABSTRACT (PP 1-3 & CLASS 1-5 SEPARATE) ---
+        # --- SUBTAB 2: MANDAL-WISE ABSTRACT & DISTRICT MANAGEMENT SUMMARY ---
         with subtab2:
             st.subheader("📊 Mandal-wise Stage & Management Enrolment Abstract")
 
@@ -475,6 +472,7 @@ with tab1:
                 ["ALL MANAGEMENTS (Total District)", "STATE GOVT Only", "AIDED Only", "PRIVATE Only", "COMPARATIVE VIEW (Govt vs Aided vs Pvt Total Roll)"]
             )
 
+            # TOP MANDAL-WISE TABLE (UNDISTURBED)
             if mgmt_choice == "COMPARATIVE VIEW (Govt vs Aided vs Pvt Total Roll)":
                 piv_s = df_clean.pivot_table(index=block_col, columns='Merged_Management', values=udise_col, aggfunc='count', fill_value=0)
                 piv_b = df_clean.pivot_table(index=block_col, columns='Merged_Management', values=boys_col, aggfunc='sum', fill_value=0)
@@ -587,6 +585,68 @@ with tab1:
                         subtitle="PP (1-3), 1-5 (Pr/UP/HS), 6-8 (UP), 6-10 (HS), 11-12 (Colleges)"
                     )
 
+            # --- KOTHTHA REPORT: DISTRICT MANAGEMENT-WISE SUMMARY (GOVT / AIDED / PVT) ---
+            st.markdown("---")
+            st.markdown("#### 🏛️ District Management-wise Stage Abstract (Govt vs Aided vs Pvt)")
+            st.caption("District-level consolidation across Pre-Primary, Primary, Upper Primary, High School & College Stages")
+
+            mgmt_agg_dict = {
+                udise_col: 'count', tot_col: 'sum',
+                'PP_B': 'sum', 'PP_G': 'sum', 'PP_T': 'sum',
+                'P_1_5_B': 'sum', 'P_1_5_G': 'sum', 'P_1_5_T': 'sum',
+                'UP_6_8_B': 'sum', 'UP_6_8_G': 'sum', 'UP_6_8_T': 'sum',
+                'HS_6_10_B': 'sum', 'HS_6_10_G': 'sum', 'HS_6_10_T': 'sum',
+                'COL_11_12_B': 'sum', 'COL_11_12_G': 'sum', 'COL_11_12_T': 'sum'
+            }
+
+            dist_mgmt_summary = df_clean.groupby('Merged_Management').agg(mgmt_agg_dict).reset_index()
+            dist_mgmt_summary = dist_mgmt_summary.rename(columns={
+                'Merged_Management': 'Management',
+                udise_col: 'Schools',
+                tot_col: 'Grand Total Roll',
+                'PP_B': 'PP (1-3) Boys', 'PP_G': 'PP (1-3) Girls', 'PP_T': 'PP (1-3) Total',
+                'P_1_5_B': '1-5 Boys', 'P_1_5_G': '1-5 Girls', 'P_1_5_T': '1-5 Total',
+                'UP_6_8_B': '6-8 UP Boys', 'UP_6_8_G': '6-8 UP Girls', 'UP_6_8_T': '6-8 UP Total',
+                'HS_6_10_B': '6-10 HS Boys', 'HS_6_10_G': '6-10 HS Girls', 'HS_6_10_T': '6-10 HS Total',
+                'COL_11_12_B': '11-12 Col Boys', 'COL_11_12_G': '11-12 Col Girls', 'COL_11_12_T': '11-12 Col Total'
+            })
+
+            # Custom sort order: STATE GOVT, AIDED, PRIVATE
+            order_map = {'STATE GOVT': 1, 'AIDED': 2, 'PRIVATE': 3}
+            dist_mgmt_summary['order'] = dist_mgmt_summary['Management'].map(lambda x: order_map.get(x, 4))
+            dist_mgmt_summary = dist_mgmt_summary.sort_values(by='order').drop(columns=['order'])
+
+            dist_mgmt_cols = [
+                'Management', 'Schools', 'Grand Total Roll',
+                'PP (1-3) Boys', 'PP (1-3) Girls', 'PP (1-3) Total',
+                '1-5 Boys', '1-5 Girls', '1-5 Total',
+                '6-8 UP Boys', '6-8 UP Girls', '6-8 UP Total',
+                '6-10 HS Boys', '6-10 HS Girls', '6-10 HS Total',
+                '11-12 Col Boys', '11-12 Col Girls', '11-12 Col Total'
+            ]
+            dist_mgmt_display = dist_mgmt_summary[dist_mgmt_cols]
+            dist_mgmt_total = append_total_row(dist_mgmt_display, label_col='Management', total_label='DISTRICT TOTAL')
+            
+            st.dataframe(dist_mgmt_total, use_container_width=True, hide_index=True)
+
+            col_dm1, col_dm2 = st.columns([1, 1])
+            with col_dm1:
+                dm_buf = io.BytesIO()
+                with pd.ExcelWriter(dm_buf, engine='openpyxl') as writer:
+                    dist_mgmt_total.to_excel(writer, index=False, sheet_name='District_Management_Stage')
+                st.download_button(
+                    "📥 Download District Management Abstract Excel", 
+                    data=dm_buf.getvalue(), 
+                    file_name="District_Management_Wise_Stage_Abstract.xlsx", 
+                    use_container_width=True
+                )
+            with col_dm2:
+                render_print_button(
+                    dist_mgmt_total, 
+                    report_title="DISTRICT MANAGEMENT-WISE STAGE ENROLMENT ABSTRACT", 
+                    subtitle="State Govt vs Aided vs Private (PP 1-3, 1-5, 6-8 UP, 6-10 HS, 11-12 Col)"
+                )
+
         # --- SUBTAB 3: CUSTOM REPORTS (CLEANED UP TO HIDE INTERNAL CALC COLUMNS) ---
         with subtab3:
             st.subheader("📑 Custom Reports & Excel Export")
@@ -598,7 +658,6 @@ with tab1:
                 mgmt_list = sorted(list(df[mgmt_col].dropna().unique())) if mgmt_col else []
                 sel_mgmt = st.multiselect("Select Management:", mgmt_list, default=mgmt_list)
 
-            # Drop internal computation columns from raw display table
             cols_to_hide = ['PP_B', 'PP_G', 'PP_T', 'P_1_5_B', 'P_1_5_G', 'P_1_5_T', 'UP_6_8_B', 'UP_6_8_G', 'UP_6_8_T', 
                             'HS_6_10_B', 'HS_6_10_G', 'HS_6_10_T', 'COL_11_12_B', 'COL_11_12_G', 'COL_11_12_T', 'Category_Code']
             clean_display_df = df.drop(columns=[c for c in cols_to_hide if c in df.columns])
@@ -609,7 +668,7 @@ with tab1:
             if mgmt_col and sel_mgmt:
                 filtered_df = filtered_df[filtered_df[mgmt_col].isin(sel_mgmt)]
 
-            st.write(f"మొత్తం పాఠశాలలు: **{len(filtered_df)}**")
+            st.write(f"Moththam Paatasaalalu: **{len(filtered_df)}**")
             st.dataframe(filtered_df, use_container_width=True)
 
             col_cf1, col_cf2 = st.columns([1, 1])
@@ -625,7 +684,7 @@ with tab1:
         with subtab4:
             st.subheader("⏳ Mandatory Biometric Update (MBU) Pending Analysis")
             if df_mbu is None:
-                st.warning(f"⚠️ '{MBU_FILE_PATH}' ఫైల్ GitHub లో ఇంకా లోడ్ కాలేదు. ఫైల్ అప్‌లోడ్ అయిందో లేదో తనిఖీ చేయండి.")
+                st.warning(f"⚠️ '{MBU_FILE_PATH}' file GitHub lo load kaaledhu. File upload aindo ledho chudandi.")
             else:
                 mbu_block_col = next((c for c in df_mbu.columns if 'BLOCK' in c.upper() or 'MANDAL' in c.upper()), None)
                 mbu_mgmt_col = 'Management_Display' if 'Management_Display' in df_mbu.columns else next((c for c in df_mbu.columns if 'MANAGE' in c.upper()), None)
@@ -768,7 +827,7 @@ with tab2:
 with tab3:
     st.subheader("📊 Cadre Strength, Working & Vacancy Analysis")
     if df_cadre is None:
-        st.warning(f"⚠️ '{TEACHERS_FILE_PATH}' ఫైల్ లోడ్ కాలేదు. ఫైల్ అప్‌లోడ్ అయిందో లేదో తనిఖీ చేయండి.")
+        st.warning(f"⚠️ '{TEACHERS_FILE_PATH}' file load kaaledhu. File upload aindo ledho chudandi.")
     else:
         c_udise = next((c for c in df_cadre.columns if 'UDISE' in str(c).upper()), None)
         c_school = next((c for c in df_cadre.columns if any(k in str(c).upper() for k in ['HS/UPS_NAME', 'SCHOOL', 'NAME'])), None)
