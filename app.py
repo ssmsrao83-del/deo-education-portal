@@ -1,6 +1,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
+import numpy as np
 import os
 import io
 
@@ -100,7 +101,7 @@ def render_print_button(dataframe, report_title="DEO REPORT", subtitle="West God
       <script>
       function printReport() {{
           var tableHtml = `{html_table_escaped}`;
-          var printWin = window.open('', '', 'width=950,height=700');
+          var printWin = window.open('', '', 'width=1100,height=750');
           printWin.document.write(`
             <html>
             <head>
@@ -111,12 +112,12 @@ def render_print_button(dataframe, report_title="DEO REPORT", subtitle="West God
                 .header-area h2 {{ margin: 0; font-size: 17px; color: #1a237e; text-transform: uppercase; }}
                 .header-area h3 {{ margin: 4px 0; font-size: 14px; color: #333; }}
                 .header-area p {{ margin: 3px 0 0 0; font-size: 12px; color: #555; font-weight: bold; }}
-                .print-table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
-                .print-table th, .print-table td {{ border: 1px solid #444; padding: 6px 8px; text-align: left; }}
+                .print-table {{ width: 100%; border-collapse: collapse; font-size: 11px; }}
+                .print-table th, .print-table td {{ border: 1px solid #444; padding: 5px 6px; text-align: center; }}
                 .print-table th {{ background-color: #f2f2f2 !important; font-weight: bold; -webkit-print-color-adjust: exact; }}
                 .print-table tr:nth-child(even) {{ background-color: #fafafa; -webkit-print-color-adjust: exact; }}
                 .print-table tr:last-child {{ font-weight: bold; background-color: #eaeaea !important; border-top: 2px solid #222; }}
-                @media print {{ body {{ margin: 10mm; }} .print-table {{ font-size: 11px; }} }}
+                @media print {{ body {{ margin: 10mm; }} }}
               </style>
             </head>
             <body>
@@ -159,6 +160,14 @@ def load_udise_data(file_path):
                 df['Management_Display'] = df[col].apply(lambda x: clean_and_map(x, MANAGEMENT_MAPPING))
             if 'CATEG' in col.upper():
                 df['Category_Display'] = df[col].apply(lambda x: clean_and_map(x, CATEGORY_MAPPING))
+                
+                def extract_cat_code(v):
+                    try:
+                        return int(float(str(v).split('-')[0].strip()))
+                    except:
+                        return 0
+                df['Category_Code'] = df[col].apply(extract_cat_code)
+                
         return df
     except Exception as e:
         st.error(f"Error reading UDISE file: {e}")
@@ -207,8 +216,6 @@ def load_mbu_data(file_path):
         return None
     try:
         df_m = pd.read_excel(actual_path, header=None)
-        
-        # Search for header row
         header_row_idx = 0
         for i in range(min(5, len(df_m))):
             row_vals = [str(x).upper() for x in df_m.iloc[i].values]
@@ -219,10 +226,8 @@ def load_mbu_data(file_path):
         df_m = pd.read_excel(actual_path, skiprows=header_row_idx)
         df_m.columns = [" ".join(str(c).replace('\xa0', ' ').replace('\n', ' ').split()).strip() for c in df_m.columns]
         
-        # Remove any junk/non-mandal rows like "(3)", digits, etc.
         mbu_b_col = next((c for c in df_m.columns if 'BLOCK' in c.upper() or 'MANDAL' in c.upper()), None)
         if mbu_b_col:
-            # Drop rows where block name is just digits, parenthesis digits like (3), nan, etc.
             df_m[mbu_b_col] = df_m[mbu_b_col].astype(str).str.strip()
             df_m = df_m[~df_m[mbu_b_col].str.match(r'^\(?\d+\)?$|^nan$', case=False)]
             df_m = df_m[df_m[mbu_b_col].str.len() > 2]
@@ -374,39 +379,138 @@ with tab1:
                 else:
                     st.warning("ఈ UDISE కోడ్ తో రికార్డు కనబడలేదు.")
 
+        # --- UPDATED SUBTAB 2: MANDAL-WISE ENROLMENT ABSTRACT & STAGE-WISE BREAKDOWN ---
         with subtab2:
             st.subheader("📊 Mandal-wise Enrolment Abstract")
-            if block_col and tot_col:
-                agg_dict = {udise_col: 'count', tot_col: 'sum'}
-                rename_cols = {udise_col: 'Total Schools', tot_col: 'Total Enrolment'}
-                if boys_col:
-                    agg_dict[boys_col] = 'sum'
-                    rename_cols[boys_col] = 'Total Boys'
-                if girls_col:
-                    agg_dict[girls_col] = 'sum'
-                    rename_cols[girls_col] = 'Total Girls'
-                
-                mandal_summary = df.groupby(block_col).agg(agg_dict).reset_index()
-                mandal_summary = mandal_summary.rename(columns={block_col: 'Mandal (Block)'})
-                mandal_summary = mandal_summary.rename(columns=rename_cols)
-                
-                mandal_summary_with_total = append_total_row(mandal_summary, label_col='Mandal (Block)', total_label='DISTRICT TOTAL')
-                st.dataframe(mandal_summary_with_total, use_container_width=True, hide_index=True)
-                
+            
+            # Helper to match class columns dynamically
+            def get_cols(classes, gender):
+                res = []
+                for c in df.columns:
+                    for cl in classes:
+                        # matches: C1(Boys), Class 1(Boys), I(Boys), PP3(Boys), etc.
+                        patterns = [f"C{cl}(", f"CLASS {cl}(", f"CLASS{cl}(", f" {cl}("]
+                        if any(p in c.upper() for p in patterns) and gender.upper() in c.upper():
+                            res.append(c)
+                return list(set(res))
+
+            # Helper sum
+            def calc_sum(dframe, col_list):
+                if not col_list:
+                    return pd.Series(0, index=dframe.index)
+                return dframe[col_list].apply(pd.to_numeric, errors='coerce').fillna(0).sum(axis=1)
+
+            c1_5_boys_cols = get_cols([1, 2, 3, 4, 5], 'BOY')
+            c1_5_girls_cols = get_cols([1, 2, 3, 4, 5], 'GIRL')
+            c6_8_boys_cols = get_cols([6, 7, 8], 'BOY')
+            c6_8_girls_cols = get_cols([6, 7, 8], 'GIRL')
+            c6_10_boys_cols = get_cols([6, 7, 8, 9, 10], 'BOY')
+            c6_10_girls_cols = get_cols([6, 7, 8, 9, 10], 'GIRL')
+            c11_12_boys_cols = get_cols([11, 12], 'BOY')
+            c11_12_girls_cols = get_cols([11, 12], 'GIRL')
+
+            # Calculate individual school stage metrics
+            df_stage = df.copy()
+            cat_series = df_stage['Category_Code'] if 'Category_Code' in df_stage.columns else pd.Series(0, index=df_stage.index)
+            
+            # 1. 1-5 Classes (All Primary, UP, and High schools having 1-5: Cat 1, 2, 3, 6)
+            mask_1_5 = cat_series.isin([1, 2, 3, 6])
+            df_stage['P_1_5_B'] = np.where(mask_1_5, calc_sum(df_stage, c1_5_boys_cols), 0)
+            df_stage['P_1_5_G'] = np.where(mask_1_5, calc_sum(df_stage, c1_5_girls_cols), 0)
+            df_stage['P_1_5_T'] = df_stage['P_1_5_B'] + df_stage['P_1_5_G']
+
+            # 2. 6-8 Classes in Upper Primary Schools (Cat 2 only)
+            mask_6_8_up = cat_series.isin([2])
+            df_stage['UP_6_8_B'] = np.where(mask_6_8_up, calc_sum(df_stage, c6_8_boys_cols), 0)
+            df_stage['UP_6_8_G'] = np.where(mask_6_8_up, calc_sum(df_stage, c6_8_girls_cols), 0)
+            df_stage['UP_6_8_T'] = df_stage['UP_6_8_B'] + df_stage['UP_6_8_G']
+
+            # 3. 6-10 Classes in High Schools (Cat 3, 5, 6, 7)
+            mask_6_10_hs = cat_series.isin([3, 5, 6, 7])
+            df_stage['HS_6_10_B'] = np.where(mask_6_10_hs, calc_sum(df_stage, c6_10_boys_cols), 0)
+            df_stage['HS_6_10_G'] = np.where(mask_6_10_hs, calc_sum(df_stage, c6_10_girls_cols), 0)
+            df_stage['HS_6_10_T'] = df_stage['HS_6_10_B'] + df_stage['HS_6_10_G']
+
+            # 4. 11-12 Classes in Jr Colleges / Higher Sec (Cat 11, 3, 5)
+            mask_11_12 = cat_series.isin([11, 3, 5])
+            df_stage['COL_11_12_B'] = np.where(mask_11_12, calc_sum(df_stage, c11_12_boys_cols), 0)
+            df_stage['COL_11_12_G'] = np.where(mask_11_12, calc_sum(df_stage, c11_12_girls_cols), 0)
+            df_stage['COL_11_12_T'] = df_stage['COL_11_12_B'] + df_stage['COL_11_12_G']
+
+            # Primary Mandal Summary
+            agg_dict = {
+                udise_col: 'count',
+                tot_col: 'sum',
+                boys_col: 'sum',
+                girls_col: 'sum',
+                'P_1_5_B': 'sum', 'P_1_5_G': 'sum', 'P_1_5_T': 'sum',
+                'UP_6_8_B': 'sum', 'UP_6_8_G': 'sum', 'UP_6_8_T': 'sum',
+                'HS_6_10_B': 'sum', 'HS_6_10_G': 'sum', 'HS_6_10_T': 'sum',
+                'COL_11_12_B': 'sum', 'COL_11_12_G': 'sum', 'COL_11_12_T': 'sum'
+            }
+
+            mandal_stage_summary = df_stage.groupby(block_col).agg(agg_dict).reset_index()
+            mandal_stage_summary = mandal_stage_summary.rename(columns={
+                block_col: 'Mandal (Block)',
+                udise_col: 'Total Schools',
+                tot_col: 'Grand Total Roll',
+                boys_col: 'Total Boys',
+                girls_col: 'Total Girls',
+                'P_1_5_B': '1-5 Boys', 'P_1_5_G': '1-5 Girls', 'P_1_5_T': '1-5 Total',
+                'UP_6_8_B': '6-8 UP Boys', 'UP_6_8_G': '6-8 UP Girls', 'UP_6_8_T': '6-8 UP Total',
+                'HS_6_10_B': '6-10 HS Boys', 'HS_6_10_G': '6-10 HS Girls', 'HS_6_10_T': '6-10 HS Total',
+                'COL_11_12_B': '11-12 Col Boys', 'COL_11_12_G': '11-12 Col Girls', 'COL_11_12_T': '11-12 Col Total'
+            })
+
+            # Clean and filter real mandals
+            mandal_stage_summary = mandal_stage_summary[
+                ~mandal_stage_summary['Mandal (Block)'].astype(str).str.match(r'^\(?\d+\)?$|^nan$', case=False)
+            ]
+            mandal_stage_summary = mandal_stage_summary[mandal_stage_summary['Mandal (Block)'].astype(str).str.len() > 2]
+
+            view_type = st.radio("Select Abstract Format:", ["📋 Stage-wise Detailed Abstract (1-5, 6-8 UP, 6-10 HS, 11-12 Col)", "📊 General Abstract (Schools & Total Roll)"], horizontal=True)
+
+            if "Stage-wise" in view_type:
+                stage_cols = [
+                    'Mandal (Block)', 'Total Schools', 'Grand Total Roll',
+                    '1-5 Boys', '1-5 Girls', '1-5 Total',
+                    '6-8 UP Boys', '6-8 UP Girls', '6-8 UP Total',
+                    '6-10 HS Boys', '6-10 HS Girls', '6-10 HS Total',
+                    '11-12 Col Boys', '11-12 Col Girls', '11-12 Col Total'
+                ]
+                display_df = mandal_stage_summary[stage_cols]
+                display_df_total = append_total_row(display_df, label_col='Mandal (Block)', total_label='DISTRICT TOTAL')
+                st.dataframe(display_df_total, use_container_width=True, hide_index=True)
+
                 col_btn1, col_btn2 = st.columns([1, 1])
                 with col_btn1:
                     m_buf = io.BytesIO()
                     with pd.ExcelWriter(m_buf, engine='openpyxl') as writer:
-                        mandal_summary_with_total.to_excel(writer, index=False, sheet_name='Mandal_Abstract')
-                    st.download_button("📥 Download Mandal Abstract as Excel", data=m_buf.getvalue(), file_name="Mandal_Wise_Abstract.xlsx", use_container_width=True)
+                        display_df_total.to_excel(writer, index=False, sheet_name='Stage_Wise_Abstract')
+                    st.download_button("📥 Download Stage-wise Abstract Excel", data=m_buf.getvalue(), file_name="Mandal_Stage_Wise_Enrolment.xlsx", use_container_width=True)
                 with col_btn2:
-                    render_print_button(mandal_summary_with_total, report_title="MANDAL-WISE ENROLMENT ABSTRACT", subtitle="West Godavari District")
+                    render_print_button(display_df_total, report_title="MANDAL-WISE STAGE-WISE ENROLMENT ABSTRACT", subtitle="1-5 (Pr/UP/HS), 6-8 (UP), 6-10 (HS), 11-12 (Colleges)")
+
+            else:
+                gen_cols = ['Mandal (Block)', 'Total Schools', 'Grand Total Roll', 'Total Boys', 'Total Girls']
+                display_df = mandal_stage_summary[gen_cols]
+                display_df_total = append_total_row(display_df, label_col='Mandal (Block)', total_label='DISTRICT TOTAL')
+                st.dataframe(display_df_total, use_container_width=True, hide_index=True)
+
+                col_btn1, col_btn2 = st.columns([1, 1])
+                with col_btn1:
+                    m_buf = io.BytesIO()
+                    with pd.ExcelWriter(m_buf, engine='openpyxl') as writer:
+                        display_df_total.to_excel(writer, index=False, sheet_name='General_Abstract')
+                    st.download_button("📥 Download General Abstract Excel", data=m_buf.getvalue(), file_name="Mandal_Wise_General_Abstract.xlsx", use_container_width=True)
+                with col_btn2:
+                    render_print_button(display_df_total, report_title="MANDAL-WISE GENERAL ENROLMENT ABSTRACT", subtitle="Schools, Total Boys, Total Girls & Grand Total")
 
         with subtab3:
             st.subheader("📑 Custom Reports & Excel Export")
             f1, f2 = st.columns(2)
             with f1:
-                mandal_list = sorted(list(df[block_col].dropna().unique())) if block_col else []
+                mandal_list = sorted([str(m) for m in df[block_col].dropna().unique() if len(str(m).strip()) > 2 and not str(m).strip().startswith('(')]) if block_col else []
                 sel_mandals = st.multiselect("Select Mandal(s):", mandal_list, default=mandal_list)
             with f2:
                 mgmt_list = sorted(list(df[mgmt_col].dropna().unique())) if mgmt_col else []
@@ -502,7 +606,6 @@ with tab1:
                 with mbu_view2:
                     st.markdown("##### 🔍 School-wise Pending Details by Mandal")
                     if mbu_block_col:
-                        # Clean Mandal list: strictly letters and length >= 3
                         m_list_mbu = sorted([
                             str(m) for m in df_mbu[mbu_block_col].dropna().unique() 
                             if len(str(m).strip()) >= 3 and not str(m).strip().startswith('(')
