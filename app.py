@@ -11,7 +11,6 @@ st.markdown("---")
 
 EXCEL_FILE_PATH = "UPTO DATE UDISE ROLL.xlsx"
 
-# --- MANAGEMENT & CATEGORY MAPPINGS ---
 MANAGEMENT_MAPPING = {
     10: "10 - State Govt.",
     24: "24 - APSWREI Society Schools",
@@ -52,10 +51,8 @@ def load_udise_data(file_path):
         return None
     try:
         df = pd.read_excel(file_path)
-        # Normalize column names
         df.columns = [c.strip() for c in df.columns]
         
-        # Apply Management and Category Name mappings
         for col in df.columns:
             if 'MANAGE' in col.upper():
                 df['Management_Display'] = df[col].apply(lambda x: clean_and_map(x, MANAGEMENT_MAPPING))
@@ -79,9 +76,13 @@ with tab1:
     if df is None:
         st.error(f"⚠️ File dorakaledhu: {EXCEL_FILE_PATH}")
     else:
-        subtab1, subtab2 = st.tabs(["🔍 School 360° Search", "📑 Custom Reports & Excel Export"])
+        # 3 Sub-tabs include chesam: School 360, Mandal Abstract, Custom Reports
+        subtab1, subtab2, subtab3 = st.tabs([
+            "🔍 School 360° Search", 
+            "📊 Mandal-wise Abstract", 
+            "📑 Custom Reports & Excel Export"
+        ])
         
-        # Identify columns
         udise_col = next((c for c in df.columns if 'UDISE' in c.upper()), None)
         school_col = next((c for c in df.columns if 'SCHOOL' in c.upper() or 'NAME' in c.upper()), None)
         mandal_col = next((c for c in df.columns if 'MANDAL' in c.upper()), None)
@@ -122,9 +123,47 @@ with tab1:
                     m2.metric("Total Boys 👦", b_val)
                     m3.metric("Total Girls 👧", g_val)
                 else:
-                    st.warning("ఈ UDISE కోడ్ తో రికార్డు కనబడలేదు.")
+                    st.warning("Ee UDISE code tho record kanabada ledhu.")
 
         with subtab2:
+            st.subheader("📊 Mandal-wise Enrolment Abstract")
+            if mandal_col and tot_col:
+                # Numeric conversions
+                df[tot_col] = pd.to_numeric(df[tot_col], errors='coerce').fillna(0)
+                if boys_col:
+                    df[boys_col] = pd.to_numeric(df[boys_col], errors='coerce').fillna(0)
+                if girls_col:
+                    df[girls_col] = pd.to_numeric(df[girls_col], errors='coerce').fillna(0)
+                
+                agg_dict = {udise_col: 'count', tot_col: 'sum'}
+                rename_cols = {udise_col: 'Total Schools', tot_col: 'Total Enrolment'}
+                
+                if boys_col:
+                    agg_dict[boys_col] = 'sum'
+                    rename_cols[boys_col] = 'Total Boys'
+                if girls_col:
+                    agg_dict[girls_col] = 'sum'
+                    rename_cols[girls_col] = 'Total Girls'
+                
+                mandal_summary = df.groupby(mandal_col).agg(agg_dict).reset_index()
+                mandal_summary = mandal_summary.rename(columns=rename_cols)
+                
+                st.dataframe(mandal_summary, use_container_width=True)
+                
+                # Excel export for mandal summary
+                m_buf = io.BytesIO()
+                with pd.ExcelWriter(m_buf, engine='openpyxl') as writer:
+                    mandal_summary.to_excel(writer, index=False, sheet_name='Mandal_Abstract')
+                st.download_button(
+                    label="📥 Download Mandal Abstract as Excel",
+                    data=m_buf.getvalue(),
+                    file_name="Mandal_Wise_Abstract.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            else:
+                st.warning("Mandal leda Total Enrolment column gurthimpabadaledhu.")
+
+        with subtab3:
             st.subheader("📑 Custom Reports & Excel Export")
             f1, f2 = st.columns(2)
             with f1:
@@ -140,10 +179,9 @@ with tab1:
             if mgmt_col and sel_mgmt:
                 filtered_df = filtered_df[filtered_df[mgmt_col].isin(sel_mgmt)]
 
-            st.write(f"మొత్తం పాఠశాలలు: **{len(filtered_df)}**")
+            st.write(f"Moththam Paatasaalalu: **{len(filtered_df)}**")
             st.dataframe(filtered_df, use_container_width=True)
 
-            # Excel download
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                 filtered_df.to_excel(writer, index=False, sheet_name='Filtered_Report')
