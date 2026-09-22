@@ -206,29 +206,45 @@ def load_mbu_data(file_path):
     if not actual_path:
         return None
     try:
-        df_m = pd.read_excel(actual_path)
-        # Normalize column names cleanly
-        df_m.columns = [" ".join(str(c).replace('\xa0', ' ').split()).strip() for c in df_m.columns]
+        # Load raw file to auto-detect header row
+        df_m = pd.read_excel(actual_path, header=None)
         
+        # Search for row containing 'UDISE' or 'BLOCK NAME'
+        header_row_idx = 0
+        for i in range(min(5, len(df_m))):
+            row_vals = [str(x).upper() for x in df_m.iloc[i].values]
+            if any('UDISE' in x for x in row_vals) or any('BLOCK' in x for x in row_vals):
+                header_row_idx = i
+                break
+                
+        df_m = pd.read_excel(actual_path, skiprows=header_row_idx)
+        # Normalize and clean column headers
+        df_m.columns = [" ".join(str(c).replace('\xa0', ' ').replace('\n', ' ').split()).strip() for c in df_m.columns]
+        
+        # Clean numeric conversion function
+        def clean_num(series):
+            return pd.to_numeric(series.astype(str).str.replace(',', '').str.strip(), errors='coerce').fillna(0)
+
         for col in df_m.columns:
             if 'MANAGEMENT' in col.upper():
                 df_m['Management_Display'] = df_m[col].apply(lambda x: clean_and_map(x, MANAGEMENT_MAPPING))
             if 'CATEGORY' in col.upper():
                 df_m['Category_Display'] = df_m[col].apply(lambda x: clean_and_map(x, CATEGORY_MAPPING))
 
-        # Identify age pending columns
-        p5_15_col = next((c for c in df_m.columns if '5-15' in c), None)
-        p15_p_col = next((c for c in df_m.columns if '15 AND ABOVE' in c.upper() or '15+' in c), None)
+        # Flexible search for 5-15 and 15+ pending columns
+        p5_15_col = next((c for c in df_m.columns if '5-15' in c or ('PENDING' in c.upper() and '5' in c)), None)
+        p15_p_col = next((c for c in df_m.columns if '15 AND ABOVE' in c.upper() or '15+' in c or ('PENDING' in c.upper() and 'ABOVE' in c.upper())), None)
         
-        val_5_15 = pd.to_numeric(df_m[p5_15_col], errors='coerce').fillna(0) if p5_15_col else 0
-        val_15_p = pd.to_numeric(df_m[p15_p_col], errors='coerce').fillna(0) if p15_p_col else 0
+        val_5_15 = clean_num(df_m[p5_15_col]) if p5_15_col else 0
+        val_15_p = clean_num(df_m[p15_p_col]) if p15_p_col else 0
         
         df_m['Total_MBU_Pending'] = val_5_15 + val_15_p
         
+        # Fallback if both not found, look for any Pending column
         if df_m['Total_MBU_Pending'].sum() == 0:
             general_pend = next((c for c in df_m.columns if 'PENDING' in c.upper() and 'NOT' not in c.upper()), None)
             if general_pend:
-                df_m['Total_MBU_Pending'] = pd.to_numeric(df_m[general_pend], errors='coerce').fillna(0)
+                df_m['Total_MBU_Pending'] = clean_num(df_m[general_pend])
 
         return df_m
     except Exception as e:
@@ -417,14 +433,14 @@ with tab1:
             if df_mbu is None:
                 st.warning(f"⚠️ '{MBU_FILE_PATH}' ఫైల్ GitHub లో ఇంకా లోడ్ కాలేదు. ఫైల్ అప్‌లోడ్ అయిందో లేదో తనిఖీ చేయండి.")
             else:
-                mbu_block_col = next((c for c in df_mbu.columns if 'BLOCK NAME' in c.upper() or 'MANDAL' in c.upper()), None)
+                mbu_block_col = next((c for c in df_mbu.columns if 'BLOCK' in c.upper() or 'MANDAL' in c.upper()), None)
                 mbu_mgmt_col = 'Management_Display' if 'Management_Display' in df_mbu.columns else next((c for c in df_mbu.columns if 'MANAGE' in c.upper()), None)
                 mbu_udise_col = next((c for c in df_mbu.columns if 'UDISE' in c.upper()), None)
-                mbu_school_col = next((c for c in df_mbu.columns if 'SCHOOL NAME' in c.upper()), None)
+                mbu_school_col = next((c for c in df_mbu.columns if 'SCHOOL' in c.upper() and 'CATEGORY' not in c.upper() and 'MANAGEMENT' not in c.upper()), None)
                 
-                p5_15_col = next((c for c in df_mbu.columns if '5-15' in c), None)
-                p15_plus_col = next((c for c in df_mbu.columns if '15 AND ABOVE' in c.upper() or '15+' in c), None)
-                tot_stu_col = next((c for c in df_mbu.columns if 'TOTAL STUDENT' in c.upper()), None)
+                p5_15_col = next((c for c in df_mbu.columns if '5-15' in c or ('PENDING' in c.upper() and '5' in c)), None)
+                p15_plus_col = next((c for c in df_mbu.columns if '15 AND ABOVE' in c.upper() or '15+' in c or ('PENDING' in c.upper() and 'ABOVE' in c.upper())), None)
+                tot_stu_col = next((c for c in df_mbu.columns if 'TOTAL STUDENT' in c.upper() or 'TOTAL' in c.upper()), None)
                 passed_col = next((c for c in df_mbu.columns if 'PASSED' in c.upper()), None)
                 failed_col = next((c for c in df_mbu.columns if 'FAILED' in c.upper()), None)
                 
@@ -444,8 +460,6 @@ with tab1:
                 with mbu_view1:
                     st.markdown("##### 📌 Mandal & Management-wise Pending Students Matrix")
                     if mbu_block_col and mbu_mgmt_col:
-                        df_mbu['Total_MBU_Pending'] = pd.to_numeric(df_mbu['Total_MBU_Pending'], errors='coerce').fillna(0)
-                        
                         pivot_mbu = df_mbu.pivot_table(
                             index=mbu_block_col,
                             columns=mbu_mgmt_col,
@@ -477,6 +491,8 @@ with tab1:
                             )
                         with col_pb2:
                             render_print_button(pivot_mbu_with_total, report_title="MANDAL & MANAGEMENT-WISE MBU PENDING MATRIX", subtitle="West Godavari District")
+                    else:
+                        st.info("Mandal లేదా Management కాలమ్స్ గుర్తించబడలేదు.")
 
                 with mbu_view2:
                     st.markdown("##### 🔍 School-wise Pending Details by Mandal")
@@ -519,8 +535,12 @@ with tab1:
                         display_cols.append('Total_MBU_Pending')
                         rename_disp['Total_MBU_Pending'] = 'Grand Total Pending'
 
-                        sch_disp_df = m_filter_df[display_cols].rename(columns=rename_disp)
-                        sch_disp_with_total = append_total_row(sch_disp_df, label_col='School Name', total_label='MANDAL TOTAL')
+                        # Keep only existing columns
+                        final_disp_cols = [c for c in display_cols if c in m_filter_df.columns]
+                        sch_disp_df = m_filter_df[final_disp_cols].rename(columns=rename_disp)
+                        
+                        label_c = 'School Name' if 'School Name' in sch_disp_df.columns else sch_disp_df.columns[0]
+                        sch_disp_with_total = append_total_row(sch_disp_df, label_col=label_c, total_label='MANDAL TOTAL')
                         
                         st.dataframe(sch_disp_with_total, use_container_width=True, hide_index=True)
                         
