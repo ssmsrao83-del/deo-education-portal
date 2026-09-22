@@ -206,10 +206,9 @@ def load_mbu_data(file_path):
     if not actual_path:
         return None
     try:
-        # Load raw file to auto-detect header row
         df_m = pd.read_excel(actual_path, header=None)
         
-        # Search for row containing 'UDISE' or 'BLOCK NAME'
+        # Search for header row
         header_row_idx = 0
         for i in range(min(5, len(df_m))):
             row_vals = [str(x).upper() for x in df_m.iloc[i].values]
@@ -218,10 +217,16 @@ def load_mbu_data(file_path):
                 break
                 
         df_m = pd.read_excel(actual_path, skiprows=header_row_idx)
-        # Normalize and clean column headers
         df_m.columns = [" ".join(str(c).replace('\xa0', ' ').replace('\n', ' ').split()).strip() for c in df_m.columns]
         
-        # Clean numeric conversion function
+        # Remove any junk/non-mandal rows like "(3)", digits, etc.
+        mbu_b_col = next((c for c in df_m.columns if 'BLOCK' in c.upper() or 'MANDAL' in c.upper()), None)
+        if mbu_b_col:
+            # Drop rows where block name is just digits, parenthesis digits like (3), nan, etc.
+            df_m[mbu_b_col] = df_m[mbu_b_col].astype(str).str.strip()
+            df_m = df_m[~df_m[mbu_b_col].str.match(r'^\(?\d+\)?$|^nan$', case=False)]
+            df_m = df_m[df_m[mbu_b_col].str.len() > 2]
+
         def clean_num(series):
             return pd.to_numeric(series.astype(str).str.replace(',', '').str.strip(), errors='coerce').fillna(0)
 
@@ -231,7 +236,6 @@ def load_mbu_data(file_path):
             if 'CATEGORY' in col.upper():
                 df_m['Category_Display'] = df_m[col].apply(lambda x: clean_and_map(x, CATEGORY_MAPPING))
 
-        # Flexible search for 5-15 and 15+ pending columns
         p5_15_col = next((c for c in df_m.columns if '5-15' in c or ('PENDING' in c.upper() and '5' in c)), None)
         p15_p_col = next((c for c in df_m.columns if '15 AND ABOVE' in c.upper() or '15+' in c or ('PENDING' in c.upper() and 'ABOVE' in c.upper())), None)
         
@@ -240,7 +244,6 @@ def load_mbu_data(file_path):
         
         df_m['Total_MBU_Pending'] = val_5_15 + val_15_p
         
-        # Fallback if both not found, look for any Pending column
         if df_m['Total_MBU_Pending'].sum() == 0:
             general_pend = next((c for c in df_m.columns if 'PENDING' in c.upper() and 'NOT' not in c.upper()), None)
             if general_pend:
@@ -460,6 +463,8 @@ with tab1:
                 with mbu_view1:
                     st.markdown("##### 📌 Mandal & Management-wise Pending Students Matrix")
                     if mbu_block_col and mbu_mgmt_col:
+                        df_mbu['Total_MBU_Pending'] = pd.to_numeric(df_mbu['Total_MBU_Pending'], errors='coerce').fillna(0)
+                        
                         pivot_mbu = df_mbu.pivot_table(
                             index=mbu_block_col,
                             columns=mbu_mgmt_col,
@@ -497,7 +502,11 @@ with tab1:
                 with mbu_view2:
                     st.markdown("##### 🔍 School-wise Pending Details by Mandal")
                     if mbu_block_col:
-                        m_list_mbu = sorted(list(df_mbu[mbu_block_col].dropna().unique()))
+                        # Clean Mandal list: strictly letters and length >= 3
+                        m_list_mbu = sorted([
+                            str(m) for m in df_mbu[mbu_block_col].dropna().unique() 
+                            if len(str(m).strip()) >= 3 and not str(m).strip().startswith('(')
+                        ])
                         sel_mbu_mandal = st.selectbox("Select Mandal:", m_list_mbu, key="mbu_mandal_select")
                         
                         m_filter_df = df_mbu[df_mbu[mbu_block_col] == sel_mbu_mandal].copy()
@@ -535,7 +544,6 @@ with tab1:
                         display_cols.append('Total_MBU_Pending')
                         rename_disp['Total_MBU_Pending'] = 'Grand Total Pending'
 
-                        # Keep only existing columns
                         final_disp_cols = [c for c in display_cols if c in m_filter_df.columns]
                         sch_disp_df = m_filter_df[final_disp_cols].rename(columns=rename_disp)
                         
