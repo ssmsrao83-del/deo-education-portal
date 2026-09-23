@@ -5,7 +5,29 @@ import numpy as np
 import os
 import io
 
-st.set_page_config(page_title="District Education Portal", layout="wide")
+st.set_page_config(
+    page_title="WG DEO Education Portal",
+    page_icon="🎓",
+    layout="wide"
+)
+
+# Force Custom Title & Icon for Android/iOS
+custom_head = """
+<script>
+  parent.document.title = "WG DEO Education Portal";
+  var linkIcon = parent.document.querySelector("link[rel*='icon']") || parent.document.createElement('link');
+  linkIcon.type = 'image/png';
+  linkIcon.rel = 'shortcut icon';
+  linkIcon.href = 'https://raw.githubusercontent.com/ssmsrao83-del/deo-education-portal/main/icon-192.png';
+  parent.document.head.appendChild(linkIcon);
+
+  var appleIcon = parent.document.createElement('link');
+  appleIcon.rel = 'apple-touch-icon';
+  appleIcon.href = 'https://raw.githubusercontent.com/ssmsrao83-del/deo-education-portal/main/icon-192.png';
+  parent.document.head.appendChild(appleIcon);
+</script>
+"""
+components.html(custom_head, height=0, width=0)
 
 st.title("🎓 District Educational Office - Management Portal")
 st.caption("West Godavari District - School Education Department")
