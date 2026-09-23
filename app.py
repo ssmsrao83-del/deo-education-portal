@@ -4,6 +4,8 @@ import pandas as pd
 import numpy as np
 import os
 import io
+from datetime import datetime, date
+from dateutil.relativedelta import relativedelta
 
 st.set_page_config(
     page_title="WG DEO Education Portal",
@@ -11,31 +13,14 @@ st.set_page_config(
     layout="wide"
 )
 
-# Force Custom Title & Icon for Android/iOS
-custom_head = """
-<script>
-  parent.document.title = "WG DEO Education Portal";
-  var linkIcon = parent.document.querySelector("link[rel*='icon']") || parent.document.createElement('link');
-  linkIcon.type = 'image/png';
-  linkIcon.rel = 'shortcut icon';
-  linkIcon.href = 'https://raw.githubusercontent.com/ssmsrao83-del/deo-education-portal/main/icon-192.png';
-  parent.document.head.appendChild(linkIcon);
-
-  var appleIcon = parent.document.createElement('link');
-  appleIcon.rel = 'apple-touch-icon';
-  appleIcon.href = 'https://raw.githubusercontent.com/ssmsrao83-del/deo-education-portal/main/icon-192.png';
-  parent.document.head.appendChild(appleIcon);
-</script>
-"""
-components.html(custom_head, height=0, width=0)
-
 st.title("🎓 District Educational Office - Management Portal")
 st.caption("West Godavari District - School Education Department")
 st.markdown("---")
 
 EXCEL_FILE_PATH = "UPTO DATE UDISE ROLL.xlsx"
-TEACHERS_FILE_PATH = "TEACHERS DATA.xlsx"
+CADRE_FILE_PATH = "TEACHERS DATA.xlsx"
 MBU_FILE_PATH = "MBU SCHOOL WISE PENDING.xlsx"
+TIS_FILE_PATH = "TIS DATA.xlsx"
 
 MANAGEMENT_MAPPING = {
     10: "10 - State Govt.",
@@ -179,13 +164,15 @@ def render_print_button(dataframe, report_title="DEO REPORT", subtitle="West God
     """
     components.html(html_code, height=45, scrolling=False)
 
-@st.cache_data(ttl=10)
-def load_udise_data(file_path):
-    actual_path = None
+def find_file(filename):
     for f in os.listdir('.'):
-        if f.lower() == file_path.lower():
-            actual_path = f
-            break
+        if f.lower() == filename.lower():
+            return f
+    return None
+
+@st.cache_data(ttl=30)
+def load_udise_data():
+    actual_path = find_file(EXCEL_FILE_PATH)
     if not actual_path:
         return None
     try:
@@ -208,13 +195,9 @@ def load_udise_data(file_path):
         st.error(f"Error reading UDISE file: {e}")
         return None
 
-@st.cache_data(ttl=10)
-def load_cadre_data(file_path):
-    actual_path = None
-    for f in os.listdir('.'):
-        if f.lower() == file_path.lower():
-            actual_path = f
-            break
+@st.cache_data(ttl=30)
+def load_cadre_data():
+    actual_path = find_file(CADRE_FILE_PATH)
     if not actual_path:
         return None
     try:
@@ -231,11 +214,11 @@ def load_cadre_data(file_path):
                 new_cols.append(f"{l0} - {l1}")
         df_raw.columns = new_cols
         df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
-    except Exception as e:
+    except Exception:
         try:
             df_raw = pd.read_excel(actual_path)
             df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
-        except:
+        except Exception:
             return None
 
     if df_raw is not None:
@@ -257,13 +240,9 @@ def load_cadre_data(file_path):
 
     return df_raw
 
-@st.cache_data(ttl=10)
-def load_mbu_data(file_path):
-    actual_path = None
-    for f in os.listdir('.'):
-        if f.lower() == file_path.lower():
-            actual_path = f
-            break
+@st.cache_data(ttl=30)
+def load_mbu_data():
+    actual_path = find_file(MBU_FILE_PATH)
     if not actual_path:
         return None
     try:
@@ -314,9 +293,92 @@ def load_mbu_data(file_path):
         st.error(f"Error reading MBU file: {e}")
         return None
 
-df = load_udise_data(EXCEL_FILE_PATH)
-df_cadre = load_cadre_data(TEACHERS_FILE_PATH)
-df_mbu = load_mbu_data(MBU_FILE_PATH)
+@st.cache_data(ttl=30)
+def load_tis_data():
+    actual_path = find_file(TIS_FILE_PATH)
+    if not actual_path:
+        return None
+    try:
+        xls = pd.ExcelFile(actual_path)
+        sheet_names = xls.sheet_names
+        
+        b_sheet = next((s for s in sheet_names if 'BASIC' in s.upper()), None)
+        a_sheet = next((s for s in sheet_names if 'APPOINT' in s.upper()), None)
+        
+        if not b_sheet or not a_sheet:
+            return None
+            
+        df_basic = pd.read_excel(actual_path, sheet_name=b_sheet)
+        df_appt = pd.read_excel(actual_path, sheet_name=a_sheet)
+        
+        df_basic.columns = [str(c).strip() for c in df_basic.columns]
+        df_appt.columns = [str(c).strip() for c in df_appt.columns]
+        
+        b_dist = next((c for c in df_basic.columns if 'NEW' in c.upper() and 'DIST' in c.upper()), None)
+        if not b_dist:
+            b_dist = next((c for c in df_basic.columns if 'DISTRICTNAME' in c.upper() or 'DIST' in c.upper()), None)
+        if b_dist:
+            df_basic = df_basic[df_basic[b_dist].astype(str).str.strip().str.upper() == 'WEST GODAVARI']
+
+        a_dist = next((c for c in df_appt.columns if 'NEW' in c.upper() and 'DIST' in c.upper()), None)
+        if not a_dist:
+            a_dist = next((c for c in df_appt.columns if 'DISTRICTNAME' in c.upper() or 'DIST' in c.upper()), None)
+        if a_dist:
+            df_appt = df_appt[df_appt[a_dist].astype(str).str.strip().str.upper() == 'WEST GODAVARI']
+
+        b_tid = next((c for c in df_basic.columns if 'TREASURY' in c.upper()), None)
+        a_tid = next((c for c in df_appt.columns if 'TREASURY' in c.upper()), None)
+
+        if not b_tid or not a_tid:
+            return None
+
+        df_basic[b_tid] = df_basic[b_tid].astype(str).str.strip()
+        df_appt[a_tid] = df_appt[a_tid].astype(str).str.strip()
+
+        df_merged = pd.merge(
+            df_appt, 
+            df_basic, 
+            left_on=a_tid, 
+            right_on=b_tid, 
+            how='inner', 
+            suffixes=('_appt', '_basic')
+        )
+
+        def calc_superannuation_62(dob_val):
+            try:
+                dt = pd.to_datetime(dob_val, errors='coerce')
+                if pd.isnull(dt):
+                    return None
+                dt_62 = dt + relativedelta(years=62)
+                # Andhra Pradesh Superannuation: Last day of the birth month
+                # If born on the 1st day of the month, retires on the previous month's last day
+                if dt.day == 1:
+                    first_of_this = dt_62.replace(day=1)
+                    ret_date = first_of_this - relativedelta(days=1)
+                else:
+                    next_month = dt_62.replace(day=28) + relativedelta(days=4)
+                    ret_date = next_month - relativedelta(days=next_month.day)
+                return ret_date.date()
+            except Exception:
+                return None
+
+        dob_col = next((c for c in df_merged.columns if 'DATEOFBIRTH' in c.upper() or c.upper() == 'DOB'), None)
+        if dob_col:
+            df_merged['Calculated_DOR'] = df_merged[dob_col].apply(calc_superannuation_62)
+            df_merged['Calculated_DOR'] = pd.to_datetime(df_merged['Calculated_DOR'])
+        else:
+            df_merged['Calculated_DOR'] = pd.NaT
+
+        return df_merged
+    except Exception as e:
+        st.error(f"Error reading TIS file: {e}")
+        return None
+
+# Load Datasets
+df = load_udise_data()
+df_cadre = load_cadre_data()
+df_mbu = load_mbu_data()
+df_tis = load_tis_data()
 
 tab1, tab2, tab3, tab4 = st.tabs([
     "🏫 School 360° & UDISE Reports",
@@ -325,9 +387,9 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "📄 CSE MIS Reports"
 ])
 
-# ==========================================
-# ------------ TAB 1: UDISE ---------------
-# ==========================================
+# =========================================================
+# -------------------- TAB 1: UDISE -----------------------
+# =========================================================
 with tab1:
     if df is None:
         st.error(f"⚠️ File dorakaledhu: {EXCEL_FILE_PATH}")
@@ -533,17 +595,17 @@ with tab1:
                     sg_s = int(piv_s.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_s.columns and m_name in piv_s.index else 0
                     sg_b = int(piv_b.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_b.columns and m_name in piv_b.index else 0
                     sg_g = int(piv_g.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_g.columns and m_name in piv_b.index else 0
-                    sg_r = int(piv_r.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_r.columns and m_name in piv_r.index else 0
+                    sg_r = int(piv_r.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_r.columns and m_name in piv_s.index else 0
 
                     ai_s = int(piv_s.loc[m_name, 'AIDED']) if 'AIDED' in piv_s.columns and m_name in piv_s.index else 0
                     ai_b = int(piv_b.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_b.index else 0
-                    ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_g.columns and m_name in piv_g.index else 0
-                    ai_r = int(piv_r.loc[m_name, 'AIDED']) if 'AIDED' in piv_r.columns and m_name in piv_r.index else 0
+                    ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_g.columns and m_name in piv_b.index else 0
+                    ai_r = int(piv_r.loc[m_name, 'AIDED']) if 'AIDED' in piv_r.columns and m_name in piv_s.index else 0
 
                     pr_s = int(piv_s.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_s.columns and m_name in piv_s.index else 0
                     pr_b = int(piv_b.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_b.index else 0
-                    pr_g = int(piv_g.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_g.columns and m_name in piv_g.index else 0
-                    pr_r = int(piv_r.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_r.columns and m_name in piv_r.index else 0
+                    pr_g = int(piv_g.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_g.columns and m_name in piv_b.index else 0
+                    pr_r = int(piv_r.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_r.columns and m_name in piv_s.index else 0
 
                     records.append({
                         "Mandal (Block)": m_name,
@@ -884,19 +946,232 @@ with tab1:
                         with col_sb2:
                             render_print_button(sch_disp_with_total, report_title=f"{sel_mbu_mandal} MANDAL - SCHOOL-WISE MBU PENDING REPORT", subtitle="School-wise Biometric Pending Details")
 
-# ==========================================
-# ------------ TAB 2: TEACHERS ------------
-# ==========================================
+# =========================================================
+# --------- TAB 2: TEACHERS DIRECTORY & RETIREMENT --------
+# =========================================================
 with tab2:
-    st.info("🧑‍🏫 Teachers Directory & Retirement Tracker - Module Coming Soon")
+    st.subheader("🧑‍🏫 Teachers Directory & Retirement Tracker (TIS)")
+    if df_tis is None:
+        st.warning(f"⚠️ '{TIS_FILE_PATH}' file load kaaledhu. File GitHub repo lo upload aindo ledho chudandi.")
+    else:
+        # Resolve column names
+        t_tid = next((c for c in df_tis.columns if 'TREASURY' in c.upper()), 'TreasuryID')
+        t_name = next((c for c in df_tis.columns if c.upper() in ['NAME', 'TEACHERNAME', 'NAME_APPT']), 'TeacherName')
+        t_desig = next((c for c in df_tis.columns if 'DESIGNATION' in c.upper()), 'Designation')
+        t_subj = next((c for c in df_tis.columns if 'SUBJECT' in c.upper()), 'Subject')
+        t_mandal = next((c for c in df_tis.columns if 'MANDAL' in c.upper()), 'MandalName')
+        t_school = next((c for c in df_tis.columns if 'SCHOOL' in c.upper() and 'OLD' not in c.upper()), 'PresentWorkingSchool')
+        t_udise = next((c for c in df_tis.columns if 'UDISE' in c.upper()), 'UdiseCode')
+        t_dob = next((c for c in df_tis.columns if 'DATEOFBIRTH' in c.upper() or c.upper() == 'DOB'), 'DateOfBirth')
+        t_cfms = next((c for c in df_tis.columns if 'CFMS' in c.upper()), 'CFMSID')
+        t_mobile = next((c for c in df_tis.columns if 'MOBILE' in c.upper()), 'MobileNumber')
+        t_gender = next((c for c in df_tis.columns if 'GENDER' in c.upper()), 'Gender')
+        t_doj_first = next((c for c in df_tis.columns if 'FIRST' in c.upper() and 'DOJ' in c.upper()), 'DOJFirstAppointment')
+        t_doj_pres = next((c for c in df_tis.columns if 'PRESENT' in c.upper() and 'DOJ' in c.upper()), 'DOJPresentPost')
 
-# ==========================================
-# ------------ TAB 3: CADRE & VACANCY -----
-# ==========================================
+        # Format dates for presentation
+        df_tis_disp = df_tis.copy()
+        if t_dob in df_tis_disp.columns:
+            df_tis_disp['DOB_Str'] = pd.to_datetime(df_tis_disp[t_dob], errors='coerce').dt.strftime('%d-%m-%Y')
+        else:
+            df_tis_disp['DOB_Str'] = "N/A"
+            
+        df_tis_disp['DOR_Str'] = pd.to_datetime(df_tis_disp['Calculated_DOR'], errors='coerce').dt.strftime('%d-%m-%Y')
+
+        # Header summary cards
+        tot_teachers = len(df_tis_disp)
+        tot_hm = int(df_tis_disp[t_desig].astype(str).str.upper().str.contains('HM|HEADMASTER').sum())
+        tot_sa = int(df_tis_disp[t_desig].astype(str).str.upper().str.contains('SA|SCHOOL ASSISTANT').sum())
+        tot_sgt = int(df_tis_disp[t_desig].astype(str).str.upper().str.contains('SGT').sum())
+
+        tc1, tc2, tc3, tc4 = st.columns(4)
+        tc1.metric("West Godavari Working Teachers 👥", f"{tot_teachers:,}")
+        tc2.metric("Gr II HMs 🏫", f"{tot_hm:,}")
+        tc3.metric("School Assistants (SA) 📚", f"{tot_sa:,}")
+        tc4.metric("SGTs ✏️", f"{tot_sgt:,}")
+        st.markdown("---")
+
+        tis_t1, tis_t2, tis_t3 = st.tabs([
+            "🔍 Teacher 360° Profile Search", 
+            "🏫 School-wise Staff Directory", 
+            "⏳ Retirement Tracker (62 Yrs)"
+        ])
+
+        # --- SUB-TAB 1: TEACHER 360 SEARCH ---
+        with tis_t1:
+            st.markdown("#### 🔍 Teacher 360° Search")
+            st.caption("Search by Treasury ID, CFMS ID, Teacher Name, or School UDISE Code")
+
+            t_query = st.text_input("Enter Treasury ID / Name / UDISE Code:", placeholder="e.g. 1024567 or Teacher Name", key="t_search_box")
+
+            if t_query:
+                q_clean = str(t_query).strip().upper()
+                cond = (
+                    df_tis_disp[t_tid].astype(str).str.upper().str.contains(q_clean) |
+                    df_tis_disp[t_name].astype(str).str.upper().str.contains(q_clean) |
+                    df_tis_disp[t_udise].astype(str).str.upper().str.contains(q_clean)
+                )
+                if t_cfms in df_tis_disp.columns:
+                    cond |= df_tis_disp[t_cfms].astype(str).str.upper().str.contains(q_clean)
+
+                t_res = df_tis_disp[cond]
+
+                if not t_res.empty:
+                    st.success(f"Records Found: {len(t_res)}")
+                    for _, t_row in t_res.iterrows():
+                        with st.expander(f"👤 {t_row[t_name]} | {t_row[t_desig]} ({t_row[t_tid]})", expanded=True):
+                            col_p1, col_p2, col_p3 = st.columns(3)
+                            with col_p1:
+                                st.markdown(f"**Treasury ID:** `{t_row[t_tid]}`")
+                                if t_cfms in t_row and pd.notnull(t_row[t_cfms]):
+                                    st.markdown(f"**CFMS ID:** `{t_row[t_cfms]}`")
+                                st.markdown(f"**Gender:** {t_row.get(t_gender, 'N/A')}")
+                                st.markdown(f"**Date of Birth:** {t_row['DOB_Str']}")
+                                st.markdown(f"**Superannuation (DOR):** 🗓️ **{t_row['DOR_Str']}**")
+                            with col_p2:
+                                st.markdown(f"**Designation:** {t_row[t_desig]}")
+                                st.markdown(f"**Subject:** {t_row.get(t_subj, 'General')}")
+                                st.markdown(f"**First Appt DOJ:** {pd.to_datetime(t_row.get(t_doj_first, None), errors='coerce').strftime('%d-%m-%Y') if pd.notnull(t_row.get(t_doj_first, None)) else 'N/A'}")
+                                st.markdown(f"**Present Cadre DOJ:** {pd.to_datetime(t_row.get(t_doj_pres, None), errors='coerce').strftime('%d-%m-%Y') if pd.notnull(t_row.get(t_doj_pres, None)) else 'N/A'}")
+                            with col_p3:
+                                st.markdown(f"**School:** {t_row.get(t_school, 'N/A')}")
+                                st.markdown(f"**UDISE Code:** `{t_row.get(t_udise, 'N/A')}`")
+                                st.markdown(f"**Mandal:** {t_row.get(t_mandal, 'N/A')}")
+                                if t_mobile in t_row and pd.notnull(t_row[t_mobile]):
+                                    st.markdown(f"**Mobile:** `{t_row[t_mobile]}`")
+                else:
+                    st.warning("Ee details tho teacher record kanipinchaledhu.")
+
+        # --- SUB-TAB 2: SCHOOL-WISE STAFF DIRECTORY ---
+        with tis_t2:
+            st.markdown("#### 🏫 School-wise Staff Directory")
+            all_tis_mandals = sorted([str(m).strip() for m in df_tis_disp[t_mandal].dropna().unique() if len(str(m).strip()) > 2])
+            sel_tis_m = st.selectbox("Select Mandal:", all_tis_mandals, key="tis_mandal_box")
+
+            m_schools_df = df_tis_disp[df_tis_disp[t_mandal] == sel_tis_m]
+            school_choices = sorted([str(s).strip() for s in m_schools_df[t_school].dropna().unique() if len(str(s).strip()) > 2])
+            sel_tis_sch = st.selectbox("Select School:", school_choices, key="tis_school_box")
+
+            sch_teachers = m_schools_df[m_schools_df[t_school] == sel_tis_sch].copy()
+
+            if not sch_teachers.empty:
+                st.info(f"**{sel_tis_sch}** - Working Teachers: **{len(sch_teachers)}** | Mandal: **{sel_tis_m}**")
+
+                view_cols = [
+                    t_tid, t_name, t_desig, t_subj, 'DOB_Str', 'DOR_Str', t_mobile
+                ]
+                rename_dict = {
+                    t_tid: 'Treasury ID',
+                    t_name: 'Teacher Name',
+                    t_desig: 'Designation',
+                    t_subj: 'Subject',
+                    'DOB_Str': 'Date of Birth',
+                    'DOR_Str': 'Retirement Date (62Y)',
+                    t_mobile: 'Mobile'
+                }
+                
+                avail_cols = [c for c in view_cols if c in sch_teachers.columns]
+                sch_display = sch_teachers[avail_cols].rename(columns=rename_dict)
+                st.dataframe(sch_display, use_container_width=True, hide_index=True)
+
+                col_tp1, col_tp2 = st.columns([1, 1])
+                with col_tp1:
+                    t_buf = io.BytesIO()
+                    with pd.ExcelWriter(t_buf, engine='openpyxl') as writer:
+                        sch_display.to_excel(writer, index=False, sheet_name='Staff_List')
+                    st.download_button(
+                        f"📥 Download {sel_tis_sch[:25]} Staff List (Excel)", 
+                        data=t_buf.getvalue(), 
+                        file_name=f"{sel_tis_sch}_Staff_List.xlsx",
+                        use_container_width=True
+                    )
+                with col_tp2:
+                    render_print_button(
+                        sch_display, 
+                        report_title=f"{sel_tis_sch} - TEACHERS STAFF LIST", 
+                        subtitle=f"Mandal: {sel_tis_m} | Total Teachers: {len(sch_display)}"
+                    )
+
+        # --- SUB-TAB 3: RETIREMENT TRACKER ---
+        with tis_t3:
+            st.markdown("#### ⏳ Superannuation & Retirement Tracker (62 Years Rule)")
+            st.caption("Auto-computed Superannuation dates as per AP State Government 62 Years Rule")
+
+            curr_date = pd.to_datetime(date.today())
+            valid_dor_df = df_tis_disp[df_tis_disp['Calculated_DOR'].notnull()].copy()
+
+            r_m1, r_m2, r_m3, r_m4 = st.columns(4)
+            ret_6m = valid_dor_df[(valid_dor_df['Calculated_DOR'] >= curr_date) & (valid_dor_df['Calculated_DOR'] <= curr_date + pd.DateOffset(months=6))]
+            ret_1y = valid_dor_df[(valid_dor_df['Calculated_DOR'] >= curr_date) & (valid_dor_df['Calculated_DOR'] <= curr_date + pd.DateOffset(years=1))]
+            ret_2y = valid_dor_df[(valid_dor_df['Calculated_DOR'] >= curr_date) & (valid_dor_df['Calculated_DOR'] <= curr_date + pd.DateOffset(years=2))]
+            ret_3y = valid_dor_df[(valid_dor_df['Calculated_DOR'] >= curr_date) & (valid_dor_df['Calculated_DOR'] <= curr_date + pd.DateOffset(years=3))]
+
+            r_m1.metric("Retiring in 6 Months ⏳", f"{len(ret_6m):,}")
+            r_m2.metric("Retiring in 1 Year 📅", f"{len(ret_1y):,}")
+            r_m3.metric("Retiring in 2 Years 🗓️", f"{len(ret_2y):,}")
+            r_m4.metric("Retiring in 3 Years 📊", f"{len(ret_3y):,}")
+            st.markdown("---")
+
+            ret_filter = st.selectbox(
+                "Select Timeframe to View Retiring Teachers List:",
+                ["Next 6 Months", "Next 1 Year", "Next 2 Years", "Next 3 Years", "All Future Retirements"]
+            )
+
+            if ret_filter == "Next 6 Months":
+                target_ret_df = ret_6m
+            elif ret_filter == "Next 1 Year":
+                target_ret_df = ret_1y
+            elif ret_filter == "Next 2 Years":
+                target_ret_df = ret_2y
+            elif ret_filter == "Next 3 Years":
+                target_ret_df = ret_3y
+            else:
+                target_ret_df = valid_dor_df[valid_dor_df['Calculated_DOR'] >= curr_date]
+
+            target_ret_df = target_ret_df.sort_values(by='Calculated_DOR')
+
+            ret_disp_cols = [
+                t_tid, t_name, t_desig, t_subj, t_school, t_mandal, 'DOB_Str', 'DOR_Str'
+            ]
+            ret_rename = {
+                t_tid: 'Treasury ID',
+                t_name: 'Teacher Name',
+                t_desig: 'Cadre / Designation',
+                t_subj: 'Subject',
+                t_school: 'Working School',
+                t_mandal: 'Mandal',
+                'DOB_Str': 'Date of Birth',
+                'DOR_Str': 'Retirement Date'
+            }
+
+            final_ret_table = target_ret_df[[c for c in ret_disp_cols if c in target_ret_df.columns]].rename(columns=ret_rename)
+            st.dataframe(final_ret_table, use_container_width=True, hide_index=True)
+
+            col_rp1, col_rp2 = st.columns([1, 1])
+            with col_rp1:
+                r_buf = io.BytesIO()
+                with pd.ExcelWriter(r_buf, engine='openpyxl') as writer:
+                    final_ret_table.to_excel(writer, index=False, sheet_name='Retirements')
+                st.download_button(
+                    f"📥 Download Retiring Teachers List ({ret_filter}) Excel", 
+                    data=r_buf.getvalue(), 
+                    file_name=f"Retiring_Teachers_{ret_filter.replace(' ', '_')}.xlsx",
+                    use_container_width=True
+                )
+            with col_rp2:
+                render_print_button(
+                    final_ret_table, 
+                    report_title=f"UPCOMING RETIREMENTS REPORT ({ret_filter.upper()})", 
+                    subtitle=f"District: West Godavari | Total: {len(final_ret_table)}"
+                )
+
+# =========================================================
+# ------------ TAB 3: CADRE STRENGTH & VACANCY ------------
+# =========================================================
 with tab3:
     st.subheader("📊 Cadre Strength, Working & Vacancy Analysis")
     if df_cadre is None:
-        st.warning(f"⚠️ '{TEACHERS_FILE_PATH}' file load kaaledhu. File upload aindo ledho chudandi.")
+        st.warning(f"⚠️ '{CADRE_FILE_PATH}' file load kaaledhu. File upload aindo ledho chudandi.")
     else:
         c_udise = next((c for c in df_cadre.columns if 'UDISE' in str(c).upper()), None)
         c_school = next((c for c in df_cadre.columns if any(k in str(c).upper() for k in ['HS/UPS_NAME', 'SCHOOL', 'NAME'])), None)
@@ -1012,10 +1287,8 @@ with tab3:
                 mandal_cadre_vac = mandal_cadre_vac.rename(columns={c_mandal: 'Mandal'})
                 
                 cadre_cols_cleaned = [col_rename_map[vc] for vc in vac_cols]
-                # Total Vacancies computed strictly from individual cadre columns
                 mandal_cadre_vac['Total Vacancies'] = mandal_cadre_vac[cadre_cols_cleaned].sum(axis=1)
 
-                # Summary Metrics computed from clean mandal aggregated data
                 tot_dist_vac = int(mandal_cadre_vac['Total Vacancies'].sum())
                 
                 hm_cols = [c for c in cadre_cols_cleaned if 'GR II HM' in c.upper() or 'HM' in c.upper()]
@@ -1107,7 +1380,6 @@ with tab3:
                     if c in df_cadre_work.columns:
                         df_cadre_work[c] = pd.to_numeric(df_cadre_work[c], errors='coerce').fillna(0)
 
-                # Sum only from individual cadre columns to avoid double counts
                 actual_dist_sanc = int(df_cadre_work[sanc_cols].sum().sum())
                 actual_dist_work = int(df_cadre_work[work_cols].sum().sum())
                 actual_dist_vac = int(df_cadre_work[vac_cols].sum().sum())
@@ -1219,8 +1491,8 @@ with tab3:
             else:
                 st.info("Cadre vivaraalu labhinchaledhu.")
 
-# ==========================================
-# ------------ TAB 4: MIS REPORTS ---------
-# ==========================================
+# =========================================================
+# ------------------ TAB 4: MIS REPORTS -------------------
+# =========================================================
 with tab4:
     st.info("📄 CSE MIS Reports - Module Coming Soon")
