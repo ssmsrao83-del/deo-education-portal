@@ -210,14 +210,28 @@ def load_cadre_data(file_path):
                 new_cols.append(f"{l0} - {l1}")
         df_raw.columns = new_cols
         df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
-        return df_raw
     except Exception as e:
         try:
-            df_fallback = pd.read_excel(actual_path)
-            df_fallback = df_fallback.loc[:, ~df_fallback.columns.duplicated()]
-            return df_fallback
+            df_raw = pd.read_excel(actual_path)
+            df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
         except:
             return None
+
+    # Filter out pre-existing TOTAL rows to prevent doubling
+    if df_raw is not None:
+        c_mandal_temp = next((c for c in df_raw.columns if 'MANDAL' in str(c).upper()), None)
+        c_school_temp = next((c for c in df_raw.columns if any(k in str(c).upper() for k in ['HS/UPS_NAME', 'SCHOOL', 'NAME'])), None)
+        
+        filter_mask = pd.Series(True, index=df_raw.index)
+        if c_mandal_temp:
+            filter_mask &= ~df_raw[c_mandal_temp].astype(str).str.upper().str.contains('TOTAL', na=False)
+            filter_mask &= ~df_raw[c_mandal_temp].astype(str).str.match(r'^\(?\d+\)?$|^nan$', case=False)
+        if c_school_temp:
+            filter_mask &= ~df_raw[c_school_temp].astype(str).str.upper().str.contains('TOTAL', na=False)
+        
+        df_raw = df_raw[filter_mask].copy()
+
+    return df_raw
 
 @st.cache_data(ttl=30)
 def load_mbu_data(file_path):
@@ -354,30 +368,25 @@ with tab1:
 
         cat_series = df['Category_Code'] if 'Category_Code' in df.columns else pd.Series(0, index=df.index)
         
-        # 1. Pre-Primary (PP 1-3)
         df['PP_B'] = calc_sum(df, pp_b)
         df['PP_G'] = calc_sum(df, pp_g)
         df['PP_T'] = df['PP_B'] + df['PP_G']
 
-        # 2. Strict Class 1-5 (Excluding PP)
         mask_1_5 = cat_series.isin([1, 2, 3, 6])
         df['P_1_5_B'] = np.where(mask_1_5, calc_sum(df, c1_5_b), 0)
         df['P_1_5_G'] = np.where(mask_1_5, calc_sum(df, c1_5_g), 0)
         df['P_1_5_T'] = df['P_1_5_B'] + df['P_1_5_G']
 
-        # 3. 6-8 UP
         mask_6_8_up = cat_series.isin([2])
         df['UP_6_8_B'] = np.where(mask_6_8_up, calc_sum(df, c6_8_b), 0)
         df['UP_6_8_G'] = np.where(mask_6_8_up, calc_sum(df, c6_8_g), 0)
         df['UP_6_8_T'] = df['UP_6_8_B'] + df['UP_6_8_G']
 
-        # 4. 6-10 HS
         mask_6_10_hs = cat_series.isin([3, 5, 6, 7])
         df['HS_6_10_B'] = np.where(mask_6_10_hs, calc_sum(df, c6_10_b), 0)
         df['HS_6_10_G'] = np.where(mask_6_10_hs, calc_sum(df, c6_10_g), 0)
         df['HS_6_10_T'] = df['HS_6_10_B'] + df['HS_6_10_G']
 
-        # 5. 11-12 Col
         mask_11_12 = cat_series.isin([11, 3, 5])
         df['COL_11_12_B'] = np.where(mask_11_12, calc_sum(df, c11_12_b), 0)
         df['COL_11_12_G'] = np.where(mask_11_12, calc_sum(df, c11_12_g), 0)
@@ -471,7 +480,6 @@ with tab1:
                 else:
                     st.warning("Ee UDISE code tho record kanabada ledhu.")
 
-        # --- SUBTAB 2: MANDAL-WISE ABSTRACT & DISTRICT MANAGEMENT SUMMARY ---
         with subtab2:
             st.subheader("📊 Mandal-wise Stage & Management Enrolment Abstract")
 
@@ -506,7 +514,7 @@ with tab1:
 
                     ai_s = int(piv_s.loc[m_name, 'AIDED']) if 'AIDED' in piv_s.columns and m_name in piv_s.index else 0
                     ai_b = int(piv_b.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_b.index else 0
-                    ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_g.columns and m_name in piv_g.index else 0
+                    ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_g.index else 0
                     ai_r = int(piv_r.loc[m_name, 'AIDED']) if 'AIDED' in piv_r.columns and m_name in piv_r.index else 0
 
                     pr_s = int(piv_s.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_s.columns and m_name in piv_s.index else 0
@@ -663,7 +671,6 @@ with tab1:
                     subtitle="State Govt vs Aided vs Private (PP 1-3, 1-5, 6-8 UP, 6-10 HS, 11-12 Col)"
                 )
 
-        # --- SUBTAB 3: CUSTOM REPORTS (CLEANED UP TO HIDE INTERNAL CALC COLUMNS) ---
         with subtab3:
             st.subheader("📑 Custom Reports & Excel Export")
             
@@ -703,7 +710,6 @@ with tab1:
             with col_cf2:
                 render_print_button(filtered_df.head(100), report_title="CUSTOM UDISE REPORT", subtitle=f"Total Schools: {len(filtered_df)}")
 
-        # --- SUBTAB 4: MANDATORY BIOMETRIC PENDING ---
         with subtab4:
             st.subheader("⏳ Mandatory Biometric Update (MBU) Pending Analysis")
             if df_mbu is None:
@@ -968,7 +974,7 @@ with tab3:
             else:
                 st.info("Paatasaala vivaraalu chudadaniki UDISE code enter cheyandi.")
 
-        # --- UPDATED SUBTAB 2: MANDAL & CADRE VACANCIES (WITH DISTRICT OVERALL SUMMARY REPORT) ---
+        # --- SUBTAB 2: MANDAL & CADRE VACANCIES ---
         with c_tab2:
             st.markdown("#### 📌 Mandal-wise & Cadre-wise Vacancy Matrix")
             if c_mandal and vac_cols:
@@ -985,18 +991,14 @@ with tab3:
                 cadre_cols_cleaned = [col_rename_map[vc] for vc in vac_cols]
                 mandal_cadre_vac['Total Vacancies'] = mandal_cadre_vac[cadre_cols_cleaned].sum(axis=1)
 
-                # --- DISTRICT OVERALL SUMMARY CARDS FOR VACANCIES ---
                 tot_dist_vac = int(mandal_cadre_vac['Total Vacancies'].sum())
                 
-                # Gr II HM Vacancies
                 hm_cols = [c for c in cadre_cols_cleaned if 'GR II HM' in c.upper() or 'HM' in c.upper()]
                 tot_hm_vac = int(mandal_cadre_vac[hm_cols].sum().sum()) if hm_cols else 0
                 
-                # School Assistant (SA) Vacancies
                 sa_cols = [c for c in cadre_cols_cleaned if c.upper().startswith('SA ') or 'SA-' in c.upper()]
                 tot_sa_vac = int(mandal_cadre_vac[sa_cols].sum().sum()) if sa_cols else 0
 
-                # SGT Vacancies
                 sgt_cols = [c for c in cadre_cols_cleaned if 'SGT' in c.upper()]
                 tot_sgt_vac = int(mandal_cadre_vac[sgt_cols].sum().sum()) if sgt_cols else 0
 
@@ -1007,7 +1009,6 @@ with tab3:
                 dv_4.metric("SGT Vacancies ✏️", f"{tot_sgt_vac:,}")
                 st.markdown("---")
 
-                # Filter Mandals
                 all_mandals = sorted(mandal_cadre_vac['Mandal'].dropna().unique())
                 sel_m = st.multiselect("Filter by Mandal(s):", all_mandals, default=all_mandals, key="vac_mandal_filter")
                 
@@ -1032,7 +1033,6 @@ with tab3:
                 with col_vm2:
                     render_print_button(display_vac_with_total, report_title="MANDAL-WISE & CADRE-WISE VACANCY MATRIX", subtitle="West Godavari District")
 
-                # --- DISTRICT OVERALL CADRE SUMMARY TABLE ---
                 st.markdown("---")
                 st.markdown("#### 🏛️ District Overall Cadre-wise Vacancy Summary")
                 st.caption("Consolidated district vacancy count per designation, ranked highest to lowest")
@@ -1073,6 +1073,7 @@ with tab3:
             else:
                 st.info("Khaaleelu emee record kaledhu.")
 
+        # --- SUBTAB 3: MANDAL CADRE SUMMARY (S/W/V) ---
         with c_tab3:
             st.markdown("#### 📑 Mandal-wise Cadre-wise Status (Sanctioned, Working, Vacant)")
             if c_mandal and sanc_cols:
@@ -1081,10 +1082,15 @@ with tab3:
                     if c in df_cadre_work.columns:
                         df_cadre_work[c] = pd.to_numeric(df_cadre_work[c], errors='coerce').fillna(0)
 
+                # Accurate Single-Count District Metrics (Not Doubled)
+                actual_dist_sanc = int(df_cadre_work[tot_sanc_col].sum()) if tot_sanc_col else int(df_cadre_work[sanc_cols].sum().sum())
+                actual_dist_work = int(df_cadre_work[tot_work_col].sum()) if tot_work_col else int(df_cadre_work[work_cols].sum().sum())
+                actual_dist_vac = int(df_cadre_work[tot_vac_col].sum()) if tot_vac_col else int(df_cadre_work[vac_cols].sum().sum())
+
                 dc_1, dc_2, dc_3 = st.columns(3)
-                dc_1.metric("District Total Sanctioned 🏛️", f"{int(df_cadre_work[tot_sanc_col].sum()):,}" if tot_sanc_col else "0")
-                dc_2.metric("District Working Staff 👥", f"{int(df_cadre_work[tot_work_col].sum()):,}" if tot_work_col else "0")
-                dc_3.metric("District Total Vacancies ⚠️", f"{int(df_cadre_work[tot_vac_col].sum()):,}" if tot_vac_col else "0")
+                dc_1.metric("District Total Sanctioned 🏛️", f"{actual_dist_sanc:,}")
+                dc_2.metric("District Working Staff 👥", f"{actual_dist_work:,}")
+                dc_3.metric("District Total Vacancies ⚠️", f"{actual_dist_vac:,}")
                 st.markdown("---")
 
                 mandal_list_all = sorted(list(df_cadre_work[c_mandal].dropna().unique()))
