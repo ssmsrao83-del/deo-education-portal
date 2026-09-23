@@ -48,6 +48,11 @@ CATEGORY_MAPPING = {
     11: "11 - Higher Secondary only/Jr. College"
 }
 
+MONTH_NAMES = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+]
+
 def get_merged_mgmt(val):
     try:
         val_str = str(val).split('-')[0].strip()
@@ -376,8 +381,7 @@ def load_tis_data():
         df_basic = df_basic[~df_basic[b_tid].isin(['', 'nan', 'NaT', 'None']) & df_basic[b_tid].notnull()]
         df_appt = df_appt[~df_appt[a_tid].isin(['', 'nan', 'NaT', 'None']) & df_appt[a_tid].notnull()]
 
-        # 3. DEDUPLICATION BEFORE MERGE (To eliminate 2 times repetition)
-        # If there are multiple appointment records, keep the latest/first active one
+        # 3. Deduplication per Treasury ID to prevent duplicates
         df_appt_clean = df_appt.drop_duplicates(subset=[a_tid], keep='first')
         df_basic_clean = df_basic.drop_duplicates(subset=[b_tid], keep='first')
 
@@ -390,45 +394,21 @@ def load_tis_data():
             how='inner', 
             suffixes=('_appt', '_basic')
         )
-
-        # Ensure absolute uniqueness per Treasury ID
         df_merged = df_merged.drop_duplicates(subset=[a_tid], keep='first')
 
-        # 5. Parse DOB and Calculate 62 Years Superannuation Date
+        # 5. Parse DOB and compute Superannuation (62 Years)
         dob_col = next((c for c in df_merged.columns if 'DATEOFBIRTH' in c.upper() or c.upper() == 'DOB'), None)
         if dob_col:
             df_merged['Parsed_DOB'] = df_merged[dob_col].apply(parse_indian_date)
             df_merged['Calculated_DOR'] = df_merged['Parsed_DOB'].apply(calc_superannuation_62)
             df_merged['Calculated_DOR'] = pd.to_datetime(df_merged['Calculated_DOR'])
+            df_merged['Retirement_Year'] = df_merged['Calculated_DOR'].dt.year
+            df_merged['Retirement_Month'] = df_merged['Calculated_DOR'].dt.month
         else:
             df_merged['Parsed_DOB'] = None
             df_merged['Calculated_DOR'] = pd.NaT
-
-        return df_merged
-    except Exception as e:
-        st.error(f"Error reading TIS file: {e}")
-        return None
-
-        df_basic[b_tid] = df_basic[b_tid].astype(str).str.strip()
-        df_appt[a_tid] = df_appt[a_tid].astype(str).str.strip()
-
-        df_merged = pd.merge(
-            df_appt, 
-            df_basic, 
-            left_on=a_tid, 
-            right_on=b_tid, 
-            how='inner', 
-            suffixes=('_appt', '_basic')
-        )
-
-        dob_col = next((c for c in df_merged.columns if 'DATEOFBIRTH' in c.upper() or c.upper() == 'DOB'), None)
-        if dob_col:
-            df_merged['Parsed_DOB'] = df_merged[dob_col].apply(parse_indian_date)
-            df_merged['Calculated_DOR'] = df_merged['Parsed_DOB'].apply(calc_superannuation_62)
-            df_merged['Calculated_DOR'] = pd.to_datetime(df_merged['Calculated_DOR'])
-        else:
-            df_merged['Parsed_DOB'] = None
-            df_merged['Calculated_DOR'] = pd.NaT
+            df_merged['Retirement_Year'] = np.nan
+            df_merged['Retirement_Month'] = np.nan
 
         return df_merged
     except Exception as e:
@@ -656,16 +636,16 @@ with tab1:
                     sg_s = int(piv_s.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_s.columns and m_name in piv_s.index else 0
                     sg_b = int(piv_b.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_b.columns and m_name in piv_b.index else 0
                     sg_g = int(piv_g.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_g.columns and m_name in piv_b.index else 0
-                    sg_r = int(piv_r.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_r.columns and m_name in piv_b.index else 0
+                    sg_r = int(piv_r.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_r.columns and m_name in piv_s.index else 0
 
                     ai_s = int(piv_s.loc[m_name, 'AIDED']) if 'AIDED' in piv_s.columns and m_name in piv_s.index else 0
-                    ai_b = int(piv_b.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_s.index else 0
-                    ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_g.columns and m_name in piv_s.index else 0
+                    ai_b = int(piv_b.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_b.index else 0
+                    ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_b.index else 0
                     ai_r = int(piv_r.loc[m_name, 'AIDED']) if 'AIDED' in piv_r.columns and m_name in piv_s.index else 0
 
                     pr_s = int(piv_s.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_s.columns and m_name in piv_s.index else 0
-                    pr_b = int(piv_b.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_s.index else 0
-                    pr_g = int(piv_g.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_g.columns and m_name in piv_s.index else 0
+                    pr_b = int(piv_b.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_b.index else 0
+                    pr_g = int(piv_g.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_b.index else 0
                     pr_r = int(piv_r.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_r.columns and m_name in piv_s.index else 0
 
                     records.append({
@@ -1047,9 +1027,10 @@ with tab2:
         tis_t1, tis_t2, tis_t3 = st.tabs([
             "🔍 Teacher 360° Profile Search", 
             "🏫 School-wise Staff Directory", 
-            "⏳ Retirement Tracker (62 Yrs)"
+            "⏳ Retirement Tracker (Past & Future)"
         ])
 
+        # --- SUB-TAB 1: TEACHER 360 SEARCH ---
         with tis_t1:
             st.markdown("#### 🔍 Teacher 360° Search")
             st.caption("Search by Treasury ID, CFMS ID, Teacher Name, or School UDISE Code")
@@ -1094,6 +1075,7 @@ with tab2:
                 else:
                     st.warning("Ee details tho teacher record kanipinchaledhu.")
 
+        # --- SUB-TAB 2: SCHOOL-WISE STAFF DIRECTORY ---
         with tis_t2:
             st.markdown("#### 🏫 School-wise Staff Directory")
             all_tis_mandals = sorted([str(m).strip() for m in df_tis_disp[t_mandal].dropna().unique() if len(str(m).strip()) > 2])
@@ -1143,42 +1125,111 @@ with tab2:
                         subtitle=f"Mandal: {sel_tis_m} | Total Teachers: {len(sch_display)}"
                     )
 
+        # --- SUB-TAB 3: RETIREMENT TRACKER WITH PAST & FUTURE MONTH/YEAR SELECTION ---
         with tis_t3:
             st.markdown("#### ⏳ Superannuation & Retirement Tracker (62 Years Rule)")
-            st.caption("Auto-computed Superannuation dates as per AP State Government 62 Years Rule (DD-MM-YYYY)")
+            st.caption("Auto-computed Superannuation dates as per AP State Government 62 Years Rule (DD-MM-YYYY) - Covering Past & Future")
 
             curr_date = pd.to_datetime(date.today())
             valid_dor_df = df_tis_disp[df_tis_disp['Calculated_DOR'].notnull()].copy()
 
-            r_m1, r_m2, r_m3, r_m4 = st.columns(4)
-            ret_6m = valid_dor_df[(valid_dor_df['Calculated_DOR'] >= curr_date) & (valid_dor_df['Calculated_DOR'] <= curr_date + pd.DateOffset(months=6))]
+            # Past and Future Metric Counts
+            past_retired_cnt = len(valid_dor_df[valid_dor_df['Calculated_DOR'] < curr_date])
             ret_1y = valid_dor_df[(valid_dor_df['Calculated_DOR'] >= curr_date) & (valid_dor_df['Calculated_DOR'] <= curr_date + pd.DateOffset(years=1))]
             ret_2y = valid_dor_df[(valid_dor_df['Calculated_DOR'] >= curr_date) & (valid_dor_df['Calculated_DOR'] <= curr_date + pd.DateOffset(years=2))]
-            ret_3y = valid_dor_df[(valid_dor_df['Calculated_DOR'] >= curr_date) & (valid_dor_df['Calculated_DOR'] <= curr_date + pd.DateOffset(years=3))]
+            future_total_cnt = len(valid_dor_df[valid_dor_df['Calculated_DOR'] >= curr_date])
 
-            r_m1.metric("Retiring in 6 Months ⏳", f"{len(ret_6m):,}")
+            r_m1, r_m2, r_m3, r_m4 = st.columns(4)
+            r_m1.metric("Already Retired (Past) 🏛️", f"{past_retired_cnt:,}")
             r_m2.metric("Retiring in 1 Year 📅", f"{len(ret_1y):,}")
             r_m3.metric("Retiring in 2 Years 🗓️", f"{len(ret_2y):,}")
-            r_m4.metric("Retiring in 3 Years 📊", f"{len(ret_3y):,}")
+            r_m4.metric("Total Future Retirements 📊", f"{future_total_cnt:,}")
             st.markdown("---")
 
-            ret_filter = st.selectbox(
-                "Select Timeframe to View Retiring Teachers List:",
-                ["Next 6 Months", "Next 1 Year", "Next 2 Years", "Next 3 Years", "All Future Retirements"]
+            # Selection Mode Toggle: Specific Month/Year vs Presets
+            filter_mode = st.radio(
+                "Select Search Filter Type:",
+                [
+                    "📅 Specific Month & Year (Past & Future)", 
+                    "⏩ Quick Upcoming Presets (Future)", 
+                    "⏪ Quick Past Presets (Already Retired)"
+                ],
+                horizontal=True
             )
 
-            if ret_filter == "Next 6 Months":
-                target_ret_df = ret_6m
-            elif ret_filter == "Next 1 Year":
-                target_ret_df = ret_1y
-            elif ret_filter == "Next 2 Years":
-                target_ret_df = ret_2y
-            elif ret_filter == "Next 3 Years":
-                target_ret_df = ret_3y
+            if filter_mode == "📅 Specific Month & Year (Past & Future)":
+                col_sel_y, col_sel_m = st.columns(2)
+                
+                # Full list of years present in dataset (Past + Future)
+                all_years = sorted([int(y) for y in valid_dor_df['Retirement_Year'].dropna().unique()])
+                if not all_years:
+                    all_years = [curr_date.year]
+                
+                default_y_idx = all_years.index(curr_date.year) if curr_date.year in all_years else 0
+
+                with col_sel_y:
+                    selected_year = st.selectbox("Select Retirement Year (Past or Future):", all_years, index=default_y_idx)
+                
+                with col_sel_m:
+                    month_options = ["All Months"] + MONTH_NAMES
+                    default_m_idx = curr_date.month if selected_year == curr_date.year else 0
+                    selected_month_str = st.selectbox("Select Retirement Month:", month_options, index=default_m_idx)
+
+                # Filter dataset
+                if selected_month_str == "All Months":
+                    target_ret_df = valid_dor_df[valid_dor_df['Retirement_Year'] == selected_year]
+                    report_label = f"YEAR {selected_year}"
+                else:
+                    sel_month_num = MONTH_NAMES.index(selected_month_str) + 1
+                    target_ret_df = valid_dor_df[
+                        (valid_dor_df['Retirement_Year'] == selected_year) & 
+                        (valid_dor_df['Retirement_Month'] == sel_month_num)
+                    ]
+                    report_label = f"{selected_month_str.upper()} {selected_year}"
+
+            elif filter_mode == "⏩ Quick Upcoming Presets (Future)":
+                ret_preset_f = st.selectbox(
+                    "Select Future Timeframe:",
+                    ["Next 6 Months", "Next 1 Year", "Next 2 Years", "Next 3 Years", "All Future Retirements"]
+                )
+                if ret_preset_f == "Next 6 Months":
+                    target_ret_df = valid_dor_df[(valid_dor_df['Calculated_DOR'] >= curr_date) & (valid_dor_df['Calculated_DOR'] <= curr_date + pd.DateOffset(months=6))]
+                elif ret_preset_f == "Next 1 Year":
+                    target_ret_df = ret_1y
+                elif ret_preset_f == "Next 2 Years":
+                    target_ret_df = ret_2y
+                elif ret_preset_f == "Next 3 Years":
+                    target_ret_df = valid_dor_df[(valid_dor_df['Calculated_DOR'] >= curr_date) & (valid_dor_df['Calculated_DOR'] <= curr_date + pd.DateOffset(years=3))]
+                else:
+                    target_ret_df = valid_dor_df[valid_dor_df['Calculated_DOR'] >= curr_date]
+                report_label = ret_preset_f.upper()
+
             else:
-                target_ret_df = valid_dor_df[valid_dor_df['Calculated_DOR'] >= curr_date]
+                ret_preset_p = st.selectbox(
+                    "Select Past Timeframe:",
+                    ["Past 6 Months", "Past 1 Year", "Past 2 Years", "Past 3 Years", "All Past Retirements"]
+                )
+                if ret_preset_p == "Past 6 Months":
+                    target_ret_df = valid_dor_df[(valid_dor_df['Calculated_DOR'] < curr_date) & (valid_dor_df['Calculated_DOR'] >= curr_date - pd.DateOffset(months=6))]
+                elif ret_preset_p == "Past 1 Year":
+                    target_ret_df = valid_dor_df[(valid_dor_df['Calculated_DOR'] < curr_date) & (valid_dor_df['Calculated_DOR'] >= curr_date - pd.DateOffset(years=1))]
+                elif ret_preset_p == "Past 2 Years":
+                    target_ret_df = valid_dor_df[(valid_dor_df['Calculated_DOR'] < curr_date) & (valid_dor_df['Calculated_DOR'] >= curr_date - pd.DateOffset(years=2))]
+                elif ret_preset_p == "Past 3 Years":
+                    target_ret_df = valid_dor_df[(valid_dor_df['Calculated_DOR'] < curr_date) & (valid_dor_df['Calculated_DOR'] >= curr_date - pd.DateOffset(years=3))]
+                else:
+                    target_ret_df = valid_dor_df[valid_dor_df['Calculated_DOR'] < curr_date]
+                report_label = ret_preset_p.upper()
+
+            # Mandal Filter within Retirement view
+            mandal_ret_choices = ["All Mandals"] + sorted([str(m) for m in target_ret_df[t_mandal].dropna().unique()])
+            sel_m_ret = st.selectbox("Filter by Mandal (Optional):", mandal_ret_choices)
+            if sel_m_ret != "All Mandals":
+                target_ret_df = target_ret_df[target_ret_df[t_mandal] == sel_m_ret]
 
             target_ret_df = target_ret_df.sort_values(by='Calculated_DOR')
+
+            st.info(f"📋 Teachers Found ({report_label} | {sel_m_ret}): **{len(target_ret_df)}**")
 
             ret_disp_cols = [
                 t_tid, t_name, t_desig, t_subj, t_school, t_mandal, 'DOB_Str', 'DOR_Str'
@@ -1203,17 +1254,30 @@ with tab2:
                 with pd.ExcelWriter(r_buf, engine='openpyxl') as writer:
                     final_ret_table.to_excel(writer, index=False, sheet_name='Retirements')
                 st.download_button(
-                    f"📥 Download Retiring Teachers List ({ret_filter}) Excel", 
+                    f"📥 Download Teachers List ({report_label}) Excel", 
                     data=r_buf.getvalue(), 
-                    file_name=f"Retiring_Teachers_{ret_filter.replace(' ', '_')}.xlsx",
+                    file_name=f"Teachers_Retirement_{report_label.replace(' ', '_')}.xlsx",
                     use_container_width=True
                 )
             with col_rp2:
                 render_print_button(
                     final_ret_table, 
-                    report_title=f"UPCOMING RETIREMENTS REPORT ({ret_filter.upper()})", 
-                    subtitle=f"District: West Godavari | Total: {len(final_ret_table)}"
+                    report_title=f"RETIREMENT REPORT - {report_label}", 
+                    subtitle=f"District: West Godavari | Mandal: {sel_m_ret} | Total: {len(final_ret_table)}"
                 )
+
+            # Year-wise Consolidation Table (Past and Future breakdown)
+            st.markdown("---")
+            st.markdown("##### 📊 Complete Year-wise Retirement Abstract (Past & Future)")
+            if not valid_dor_df.empty:
+                full_y_summary = valid_dor_df.groupby('Retirement_Year').agg(
+                    Total_Retirements=(t_tid, 'count')
+                ).reset_index()
+                full_y_summary['Status'] = np.where(full_y_summary['Retirement_Year'] < curr_date.year, 'Past (Already Retired)', 'Future (Upcoming)')
+                full_y_summary['Retirement_Year'] = full_y_summary['Retirement_Year'].astype(int).astype(str)
+                full_y_summary = full_y_summary[['Retirement_Year', 'Status', 'Total_Retirements']]
+                full_y_summary_total = append_total_row(full_y_summary, label_col='Retirement_Year', total_label='DISTRICT TOTAL')
+                st.dataframe(full_y_summary_total, use_container_width=True, hide_index=True)
 
 # =========================================================
 # ------------ TAB 3: CADRE STRENGTH & VACANCY ------------
