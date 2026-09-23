@@ -157,7 +157,7 @@ def render_print_button(dataframe, report_title="DEO REPORT", subtitle="West God
     """
     components.html(html_code, height=45, scrolling=False)
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=10)
 def load_udise_data(file_path):
     actual_path = None
     for f in os.listdir('.'):
@@ -181,13 +181,12 @@ def load_udise_data(file_path):
                     except:
                         return 0
                 df['Category_Code'] = df[col].apply(extract_cat_code)
-                
         return df
     except Exception as e:
         st.error(f"Error reading UDISE file: {e}")
         return None
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=10)
 def load_cadre_data(file_path):
     actual_path = None
     for f in os.listdir('.'):
@@ -217,23 +216,26 @@ def load_cadre_data(file_path):
         except:
             return None
 
-    # Filter out pre-existing TOTAL rows to prevent doubling
     if df_raw is not None:
         c_mandal_temp = next((c for c in df_raw.columns if 'MANDAL' in str(c).upper()), None)
         c_school_temp = next((c for c in df_raw.columns if any(k in str(c).upper() for k in ['HS/UPS_NAME', 'SCHOOL', 'NAME'])), None)
-        
+        c_udise_temp = next((c for c in df_raw.columns if 'UDISE' in str(c).upper()), None)
+
         filter_mask = pd.Series(True, index=df_raw.index)
         if c_mandal_temp:
             filter_mask &= ~df_raw[c_mandal_temp].astype(str).str.upper().str.contains('TOTAL', na=False)
             filter_mask &= ~df_raw[c_mandal_temp].astype(str).str.match(r'^\(?\d+\)?$|^nan$', case=False)
         if c_school_temp:
             filter_mask &= ~df_raw[c_school_temp].astype(str).str.upper().str.contains('TOTAL', na=False)
+        if c_udise_temp:
+            filter_mask &= ~df_raw[c_udise_temp].astype(str).str.upper().str.contains('TOTAL', na=False)
+            filter_mask &= df_raw[c_udise_temp].notnull()
         
         df_raw = df_raw[filter_mask].copy()
 
     return df_raw
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=10)
 def load_mbu_data(file_path):
     actual_path = None
     for f in os.listdir('.'):
@@ -401,7 +403,6 @@ with tab1:
 
         with subtab1:
             st.subheader("🏫 Individual School 360° Profile")
-            
             d_s1, d_s2, d_s3, d_s4 = st.columns(4)
             d_s1.metric("District Total Schools 🏫", f"{len(df):,}")
             d_s2.metric("Total District Roll 👥", f"{int(df[tot_col].sum()):,}")
@@ -509,12 +510,12 @@ with tab1:
                 for m_name in sorted(df_clean[block_col].unique()):
                     sg_s = int(piv_s.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_s.columns and m_name in piv_s.index else 0
                     sg_b = int(piv_b.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_b.columns and m_name in piv_b.index else 0
-                    sg_g = int(piv_g.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_g.columns and m_name in piv_g.index else 0
+                    sg_g = int(piv_g.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_g.columns and m_name in piv_b.index else 0
                     sg_r = int(piv_r.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_r.columns and m_name in piv_r.index else 0
 
                     ai_s = int(piv_s.loc[m_name, 'AIDED']) if 'AIDED' in piv_s.columns and m_name in piv_s.index else 0
                     ai_b = int(piv_b.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_b.index else 0
-                    ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_g.index else 0
+                    ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_g.columns and m_name in piv_g.index else 0
                     ai_r = int(piv_r.loc[m_name, 'AIDED']) if 'AIDED' in piv_r.columns and m_name in piv_r.index else 0
 
                     pr_s = int(piv_s.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_s.columns and m_name in piv_s.index else 0
@@ -989,8 +990,10 @@ with tab3:
                 mandal_cadre_vac = mandal_cadre_vac.rename(columns={c_mandal: 'Mandal'})
                 
                 cadre_cols_cleaned = [col_rename_map[vc] for vc in vac_cols]
+                # Total Vacancies computed strictly from individual cadre columns
                 mandal_cadre_vac['Total Vacancies'] = mandal_cadre_vac[cadre_cols_cleaned].sum(axis=1)
 
+                # Summary Metrics computed from clean mandal aggregated data
                 tot_dist_vac = int(mandal_cadre_vac['Total Vacancies'].sum())
                 
                 hm_cols = [c for c in cadre_cols_cleaned if 'GR II HM' in c.upper() or 'HM' in c.upper()]
@@ -1082,10 +1085,10 @@ with tab3:
                     if c in df_cadre_work.columns:
                         df_cadre_work[c] = pd.to_numeric(df_cadre_work[c], errors='coerce').fillna(0)
 
-                # Accurate Single-Count District Metrics (Not Doubled)
-                actual_dist_sanc = int(df_cadre_work[tot_sanc_col].sum()) if tot_sanc_col else int(df_cadre_work[sanc_cols].sum().sum())
-                actual_dist_work = int(df_cadre_work[tot_work_col].sum()) if tot_work_col else int(df_cadre_work[work_cols].sum().sum())
-                actual_dist_vac = int(df_cadre_work[tot_vac_col].sum()) if tot_vac_col else int(df_cadre_work[vac_cols].sum().sum())
+                # Sum only from individual cadre columns to avoid double counts
+                actual_dist_sanc = int(df_cadre_work[sanc_cols].sum().sum())
+                actual_dist_work = int(df_cadre_work[work_cols].sum().sum())
+                actual_dist_vac = int(df_cadre_work[vac_cols].sum().sum())
 
                 dc_1, dc_2, dc_3 = st.columns(3)
                 dc_1.metric("District Total Sanctioned 🏛️", f"{actual_dist_sanc:,}")
