@@ -349,6 +349,7 @@ def load_tis_data():
         df_basic.columns = [str(c).strip() for c in df_basic.columns]
         df_appt.columns = [str(c).strip() for c in df_appt.columns]
         
+        # 1. Filter West Godavari Only
         b_dist = next((c for c in df_basic.columns if 'NEW' in c.upper() and 'DIST' in c.upper()), None)
         if not b_dist:
             b_dist = next((c for c in df_basic.columns if 'DISTRICTNAME' in c.upper() or 'DIST' in c.upper()), None)
@@ -361,11 +362,52 @@ def load_tis_data():
         if a_dist:
             df_appt = df_appt[df_appt[a_dist].astype(str).str.strip().str.upper() == 'WEST GODAVARI']
 
+        # 2. Identify Treasury ID Columns
         b_tid = next((c for c in df_basic.columns if 'TREASURY' in c.upper()), None)
         a_tid = next((c for c in df_appt.columns if 'TREASURY' in c.upper()), None)
 
         if not b_tid or not a_tid:
             return None
+
+        df_basic[b_tid] = df_basic[b_tid].astype(str).str.strip()
+        df_appt[a_tid] = df_appt[a_tid].astype(str).str.strip()
+
+        # Remove invalid empty Treasury IDs
+        df_basic = df_basic[~df_basic[b_tid].isin(['', 'nan', 'NaT', 'None']) & df_basic[b_tid].notnull()]
+        df_appt = df_appt[~df_appt[a_tid].isin(['', 'nan', 'NaT', 'None']) & df_appt[a_tid].notnull()]
+
+        # 3. DEDUPLICATION BEFORE MERGE (To eliminate 2 times repetition)
+        # If there are multiple appointment records, keep the latest/first active one
+        df_appt_clean = df_appt.drop_duplicates(subset=[a_tid], keep='first')
+        df_basic_clean = df_basic.drop_duplicates(subset=[b_tid], keep='first')
+
+        # 4. Merge Basic & Appointment details
+        df_merged = pd.merge(
+            df_appt_clean, 
+            df_basic_clean, 
+            left_on=a_tid, 
+            right_on=b_tid, 
+            how='inner', 
+            suffixes=('_appt', '_basic')
+        )
+
+        # Ensure absolute uniqueness per Treasury ID
+        df_merged = df_merged.drop_duplicates(subset=[a_tid], keep='first')
+
+        # 5. Parse DOB and Calculate 62 Years Superannuation Date
+        dob_col = next((c for c in df_merged.columns if 'DATEOFBIRTH' in c.upper() or c.upper() == 'DOB'), None)
+        if dob_col:
+            df_merged['Parsed_DOB'] = df_merged[dob_col].apply(parse_indian_date)
+            df_merged['Calculated_DOR'] = df_merged['Parsed_DOB'].apply(calc_superannuation_62)
+            df_merged['Calculated_DOR'] = pd.to_datetime(df_merged['Calculated_DOR'])
+        else:
+            df_merged['Parsed_DOB'] = None
+            df_merged['Calculated_DOR'] = pd.NaT
+
+        return df_merged
+    except Exception as e:
+        st.error(f"Error reading TIS file: {e}")
+        return None
 
         df_basic[b_tid] = df_basic[b_tid].astype(str).str.strip()
         df_appt[a_tid] = df_appt[a_tid].astype(str).str.strip()
