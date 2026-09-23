@@ -170,6 +170,41 @@ def find_file(filename):
             return f
     return None
 
+def parse_indian_date(val):
+    if pd.isnull(val) or str(val).strip() in ['', 'nan', 'NaT', 'None']:
+        return None
+    if isinstance(val, (datetime, pd.Timestamp)):
+        return val.date()
+    val_str = str(val).strip().split(' ')[0]
+    for fmt in ('%d-%m-%Y', '%d/%m/%Y', '%d.%m.%Y', '%Y-%m-%d'):
+        try:
+            return datetime.strptime(val_str, fmt).date()
+        except ValueError:
+            pass
+    try:
+        dt = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
+        if pd.notnull(dt):
+            return dt.date()
+    except Exception:
+        pass
+    return None
+
+def calc_superannuation_62(dob_val):
+    dob = parse_indian_date(dob_val)
+    if not dob:
+        return None
+    try:
+        dt_62 = dob + relativedelta(years=62)
+        if dob.day == 1:
+            first_of_this = dt_62.replace(day=1)
+            dor = first_of_this - relativedelta(days=1)
+        else:
+            next_month = dt_62.replace(day=28) + relativedelta(days=4)
+            dor = next_month - relativedelta(days=next_month.day)
+        return dor
+    except Exception:
+        return None
+
 @st.cache_data(ttl=30)
 def load_udise_data():
     actual_path = find_file(EXCEL_FILE_PATH)
@@ -344,29 +379,13 @@ def load_tis_data():
             suffixes=('_appt', '_basic')
         )
 
-        def calc_superannuation_62(dob_val):
-            try:
-                dt = pd.to_datetime(dob_val, errors='coerce')
-                if pd.isnull(dt):
-                    return None
-                dt_62 = dt + relativedelta(years=62)
-                # Andhra Pradesh Superannuation: Last day of the birth month
-                # If born on the 1st day of the month, retires on the previous month's last day
-                if dt.day == 1:
-                    first_of_this = dt_62.replace(day=1)
-                    ret_date = first_of_this - relativedelta(days=1)
-                else:
-                    next_month = dt_62.replace(day=28) + relativedelta(days=4)
-                    ret_date = next_month - relativedelta(days=next_month.day)
-                return ret_date.date()
-            except Exception:
-                return None
-
         dob_col = next((c for c in df_merged.columns if 'DATEOFBIRTH' in c.upper() or c.upper() == 'DOB'), None)
         if dob_col:
-            df_merged['Calculated_DOR'] = df_merged[dob_col].apply(calc_superannuation_62)
+            df_merged['Parsed_DOB'] = df_merged[dob_col].apply(parse_indian_date)
+            df_merged['Calculated_DOR'] = df_merged['Parsed_DOB'].apply(calc_superannuation_62)
             df_merged['Calculated_DOR'] = pd.to_datetime(df_merged['Calculated_DOR'])
         else:
+            df_merged['Parsed_DOB'] = None
             df_merged['Calculated_DOR'] = pd.NaT
 
         return df_merged
@@ -374,7 +393,7 @@ def load_tis_data():
         st.error(f"Error reading TIS file: {e}")
         return None
 
-# Load Datasets
+# Load all Datasets
 df = load_udise_data()
 df_cadre = load_cadre_data()
 df_mbu = load_mbu_data()
@@ -595,16 +614,16 @@ with tab1:
                     sg_s = int(piv_s.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_s.columns and m_name in piv_s.index else 0
                     sg_b = int(piv_b.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_b.columns and m_name in piv_b.index else 0
                     sg_g = int(piv_g.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_g.columns and m_name in piv_b.index else 0
-                    sg_r = int(piv_r.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_r.columns and m_name in piv_s.index else 0
+                    sg_r = int(piv_r.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_r.columns and m_name in piv_b.index else 0
 
                     ai_s = int(piv_s.loc[m_name, 'AIDED']) if 'AIDED' in piv_s.columns and m_name in piv_s.index else 0
-                    ai_b = int(piv_b.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_b.index else 0
-                    ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_g.columns and m_name in piv_b.index else 0
+                    ai_b = int(piv_b.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_s.index else 0
+                    ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_g.columns and m_name in piv_s.index else 0
                     ai_r = int(piv_r.loc[m_name, 'AIDED']) if 'AIDED' in piv_r.columns and m_name in piv_s.index else 0
 
                     pr_s = int(piv_s.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_s.columns and m_name in piv_s.index else 0
-                    pr_b = int(piv_b.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_b.index else 0
-                    pr_g = int(piv_g.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_g.columns and m_name in piv_b.index else 0
+                    pr_b = int(piv_b.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_s.index else 0
+                    pr_g = int(piv_g.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_g.columns and m_name in piv_s.index else 0
                     pr_r = int(piv_r.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_r.columns and m_name in piv_s.index else 0
 
                     records.append({
@@ -954,7 +973,6 @@ with tab2:
     if df_tis is None:
         st.warning(f"⚠️ '{TIS_FILE_PATH}' file load kaaledhu. File GitHub repo lo upload aindo ledho chudandi.")
     else:
-        # Resolve column names
         t_tid = next((c for c in df_tis.columns if 'TREASURY' in c.upper()), 'TreasuryID')
         t_name = next((c for c in df_tis.columns if c.upper() in ['NAME', 'TEACHERNAME', 'NAME_APPT']), 'TeacherName')
         t_desig = next((c for c in df_tis.columns if 'DESIGNATION' in c.upper()), 'Designation')
@@ -962,23 +980,16 @@ with tab2:
         t_mandal = next((c for c in df_tis.columns if 'MANDAL' in c.upper()), 'MandalName')
         t_school = next((c for c in df_tis.columns if 'SCHOOL' in c.upper() and 'OLD' not in c.upper()), 'PresentWorkingSchool')
         t_udise = next((c for c in df_tis.columns if 'UDISE' in c.upper()), 'UdiseCode')
-        t_dob = next((c for c in df_tis.columns if 'DATEOFBIRTH' in c.upper() or c.upper() == 'DOB'), 'DateOfBirth')
         t_cfms = next((c for c in df_tis.columns if 'CFMS' in c.upper()), 'CFMSID')
         t_mobile = next((c for c in df_tis.columns if 'MOBILE' in c.upper()), 'MobileNumber')
         t_gender = next((c for c in df_tis.columns if 'GENDER' in c.upper()), 'Gender')
         t_doj_first = next((c for c in df_tis.columns if 'FIRST' in c.upper() and 'DOJ' in c.upper()), 'DOJFirstAppointment')
         t_doj_pres = next((c for c in df_tis.columns if 'PRESENT' in c.upper() and 'DOJ' in c.upper()), 'DOJPresentPost')
 
-        # Format dates for presentation
         df_tis_disp = df_tis.copy()
-        if t_dob in df_tis_disp.columns:
-            df_tis_disp['DOB_Str'] = pd.to_datetime(df_tis_disp[t_dob], errors='coerce').dt.strftime('%d-%m-%Y')
-        else:
-            df_tis_disp['DOB_Str'] = "N/A"
-            
+        df_tis_disp['DOB_Str'] = df_tis_disp['Parsed_DOB'].apply(lambda d: d.strftime('%d-%m-%Y') if d else 'N/A')
         df_tis_disp['DOR_Str'] = pd.to_datetime(df_tis_disp['Calculated_DOR'], errors='coerce').dt.strftime('%d-%m-%Y')
 
-        # Header summary cards
         tot_teachers = len(df_tis_disp)
         tot_hm = int(df_tis_disp[t_desig].astype(str).str.upper().str.contains('HM|HEADMASTER').sum())
         tot_sa = int(df_tis_disp[t_desig].astype(str).str.upper().str.contains('SA|SCHOOL ASSISTANT').sum())
@@ -997,7 +1008,6 @@ with tab2:
             "⏳ Retirement Tracker (62 Yrs)"
         ])
 
-        # --- SUB-TAB 1: TEACHER 360 SEARCH ---
         with tis_t1:
             st.markdown("#### 🔍 Teacher 360° Search")
             st.caption("Search by Treasury ID, CFMS ID, Teacher Name, or School UDISE Code")
@@ -1042,7 +1052,6 @@ with tab2:
                 else:
                     st.warning("Ee details tho teacher record kanipinchaledhu.")
 
-        # --- SUB-TAB 2: SCHOOL-WISE STAFF DIRECTORY ---
         with tis_t2:
             st.markdown("#### 🏫 School-wise Staff Directory")
             all_tis_mandals = sorted([str(m).strip() for m in df_tis_disp[t_mandal].dropna().unique() if len(str(m).strip()) > 2])
@@ -1092,10 +1101,9 @@ with tab2:
                         subtitle=f"Mandal: {sel_tis_m} | Total Teachers: {len(sch_display)}"
                     )
 
-        # --- SUB-TAB 3: RETIREMENT TRACKER ---
         with tis_t3:
             st.markdown("#### ⏳ Superannuation & Retirement Tracker (62 Years Rule)")
-            st.caption("Auto-computed Superannuation dates as per AP State Government 62 Years Rule")
+            st.caption("Auto-computed Superannuation dates as per AP State Government 62 Years Rule (DD-MM-YYYY)")
 
             curr_date = pd.to_datetime(date.today())
             valid_dor_df = df_tis_disp[df_tis_disp['Calculated_DOR'].notnull()].copy()
@@ -1272,7 +1280,6 @@ with tab3:
             else:
                 st.info("Paatasaala vivaraalu chudadaniki UDISE code enter cheyandi.")
 
-        # --- SUBTAB 2: MANDAL & CADRE VACANCIES ---
         with c_tab2:
             st.markdown("#### 📌 Mandal-wise & Cadre-wise Vacancy Matrix")
             if c_mandal and vac_cols:
@@ -1371,7 +1378,6 @@ with tab3:
             else:
                 st.info("Khaaleelu emee record kaledhu.")
 
-        # --- SUBTAB 3: MANDAL CADRE SUMMARY (S/W/V) ---
         with c_tab3:
             st.markdown("#### 📑 Mandal-wise Cadre-wise Status (Sanctioned, Working, Vacant)")
             if c_mandal and sanc_cols:
