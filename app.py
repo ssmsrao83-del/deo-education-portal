@@ -334,6 +334,56 @@ def load_mbu_data():
         return None
 
 @st.cache_data(ttl=30)
+def normalize_tid(val):
+    if pd.isnull(val):
+        return ""
+    s = str(val).strip().split('.')[0]
+    # Strip non-digits and leading zeros to ensure uniform join key
+    s_digits = ''.join(ch for ch in s if ch.isdigit())
+    return s_digits.lstrip('0') if s_digits else s
+
+def parse_indian_date(val):
+    if pd.isnull(val) or str(val).strip() in ['', 'nan', 'NaT', 'None']:
+        return None
+    if isinstance(val, (datetime, pd.Timestamp)):
+        return val.date()
+    val_str = str(val).strip().split(' ')[0]
+    # Try explicit dayfirst parsing
+    for fmt in ('%d-%m-%Y', '%d/%m/%Y', '%d.%m.%Y', '%Y-%m-%d', '%Y/%m/%d'):
+        try:
+            return datetime.strptime(val_str, fmt).date()
+        except ValueError:
+            pass
+    try:
+        dt = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
+        if pd.notnull(dt):
+            return dt.date()
+    except Exception:
+        pass
+    return None
+
+def calc_superannuation_62(dob_val):
+    dob = parse_indian_date(dob_val)
+    if not dob:
+        return None
+    try:
+        # Rule: Exact 62 Years Superannuation
+        # If DOB is 1st of month (e.g. 01-10-1964), DOR is the last day of PREVIOUS month (30-09-2026)
+        # If DOB is 2nd-31st of month (e.g. 15-09-1964), DOR is last day of SAME birth month (30-09-2026)
+        if dob.day == 1:
+            # 62 years from birth date, then subtract 1 day
+            dt_62 = dob + relativedelta(years=62)
+            dor = dt_62 - relativedelta(days=1)
+        else:
+            dt_62 = dob + relativedelta(years=62)
+            # Find last day of the birth month in year+62
+            next_month = dt_62.replace(day=28) + relativedelta(days=4)
+            dor = next_month - relativedelta(days=next_month.day)
+        return dor
+    except Exception:
+        return None
+
+@st.cache_data(ttl=30)
 def load_tis_data():
     actual_path = find_file(TIS_FILE_PATH)
     if not actual_path:
@@ -354,26 +404,61 @@ def load_tis_data():
         df_basic.columns = [str(c).strip() for c in df_basic.columns]
         df_appt.columns = [str(c).strip() for c in df_appt.columns]
         
-        # 1. Filter West Godavari Only
-        b_dist = next((c for c in df_basic.columns if 'NEW' in c.upper() and 'DIST' in c.upper()), None)
-        if not b_dist:
-            b_dist = next((c for c in df_basic.columns if 'DISTRICTNAME' in c.upper() or 'DIST' in c.upper()), None)
-        if b_dist:
-            df_basic = df_basic[df_basic[b_dist].astype(str).str.strip().str.upper() == 'WEST GODAVARI']
-
+        # 1. West Godavari Filter on APPOINTMENT sheet (Primary working district)
         a_dist = next((c for c in df_appt.columns if 'NEW' in c.upper() and 'DIST' in c.upper()), None)
         if not a_dist:
             a_dist = next((c for c in df_appt.columns if 'DISTRICTNAME' in c.upper() or 'DIST' in c.upper()), None)
         if a_dist:
             df_appt = df_appt[df_appt[a_dist].astype(str).str.strip().str.upper() == 'WEST GODAVARI']
 
-        # 2. Identify Treasury ID Columns
+        # 2. Normalized Treasury ID Matching
         b_tid = next((c for c in df_basic.columns if 'TREASURY' in c.upper()), None)
         a_tid = next((c for c in df_appt.columns if 'TREASURY' in c.upper()), None)
 
         if not b_tid or not a_tid:
             return None
 
+        # Create standardized keys without zero padding conflicts
+        df_basic['Join_TID'] = df_basic[b_tid].apply(normalize_tid)
+        df_appt['Join_TID'] = df_appt[a_tid].apply(normalize_tid)
+
+        df_basic = df_basic[df_basic['Join_TID'] != '']
+        df_appt = df_appt[df_appt['Join_TID'] != '']
+
+        # Deduplicate on Join_TID
+        df_appt_clean = df_appt.drop_duplicates(subset=['Join_TID'], keep='first')
+        df_basic_clean = df_basic.drop_duplicates(subset=['Join_TID'], keep='first')
+
+        # 3. USE LEFT JOIN (Never drop appointment teachers even if basic details have slight mismatch)
+        df_merged = pd.merge(
+            df_appt_clean, 
+            df_basic_clean, 
+            on='Join_TID', 
+            how='left', 
+            suffixes=('_appt', '_basic')
+        )
+
+        # 4. Check Date of Birth from both sheets
+        dob_col = next((c for c in df_merged.columns if 'DATEOFBIRTH' in c.upper() or c.upper() == 'DOB'), None)
+        if not dob_col:
+            dob_col = next((c for c in df_merged.columns if 'DOB' in c.upper()), None)
+
+        if dob_col:
+            df_merged['Parsed_DOB'] = df_merged[dob_col].apply(parse_indian_date)
+            df_merged['Calculated_DOR'] = df_merged['Parsed_DOB'].apply(calc_superannuation_62)
+            df_merged['Calculated_DOR'] = pd.to_datetime(df_merged['Calculated_DOR'])
+            df_merged['Retirement_Year'] = df_merged['Calculated_DOR'].dt.year
+            df_merged['Retirement_Month'] = df_merged['Calculated_DOR'].dt.month
+        else:
+            df_merged['Parsed_DOB'] = None
+            df_merged['Calculated_DOR'] = pd.NaT
+            df_merged['Retirement_Year'] = np.nan
+            df_merged['Retirement_Month'] = np.nan
+
+        return df_merged
+    except Exception as e:
+        st.error(f"Error reading TIS file: {e}")
+        return None
         df_basic[b_tid] = df_basic[b_tid].astype(str).str.strip()
         df_appt[a_tid] = df_appt[a_tid].astype(str).str.strip()
 
