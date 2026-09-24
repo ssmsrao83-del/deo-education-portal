@@ -175,17 +175,40 @@ def find_file(filename):
             return f
     return None
 
+def normalize_tid(val):
+    if pd.isnull(val):
+        return ""
+    s = str(val).strip().split('.')[0]
+    s_digits = ''.join(ch for ch in s if ch.isdigit())
+    return s_digits.lstrip('0') if s_digits else s
+
 def parse_indian_date(val):
     if pd.isnull(val) or str(val).strip() in ['', 'nan', 'NaT', 'None']:
         return None
     if isinstance(val, (datetime, pd.Timestamp)):
         return val.date()
-    val_str = str(val).strip().split(' ')[0]
-    for fmt in ('%d-%m-%Y', '%d/%m/%Y', '%d.%m.%Y', '%Y-%m-%d'):
+    if isinstance(val, date):
+        return val
+    try:
+        if isinstance(val, (int, float)) or (isinstance(val, str) and val.strip().replace('.', '', 1).isdigit()):
+            num = float(val)
+            if num > 10000:
+                return (datetime(1899, 12, 30) + pd.Timedelta(days=num)).date()
+    except Exception:
+        pass
+    
+    val_str = str(val).strip().split(' ')[0].replace('/', '-').replace('.', '-')
+    parts = val_str.split('-')
+    if len(parts) == 3:
+        p0, p1, p2 = parts[0].strip(), parts[1].strip(), parts[2].strip()
         try:
-            return datetime.strptime(val_str, fmt).date()
-        except ValueError:
+            if len(p0) == 4:
+                return date(int(p0), int(p1), int(p2))
+            elif len(p2) == 4:
+                return date(int(p2), int(p1), int(p0))
+        except Exception:
             pass
+
     try:
         dt = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
         if pd.notnull(dt):
@@ -199,11 +222,11 @@ def calc_superannuation_62(dob_val):
     if not dob:
         return None
     try:
-        dt_62 = dob + relativedelta(years=62)
         if dob.day == 1:
-            first_of_this = dt_62.replace(day=1)
-            dor = first_of_this - relativedelta(days=1)
+            dt_62 = dob + relativedelta(years=62)
+            dor = dt_62 - relativedelta(days=1)
         else:
+            dt_62 = dob + relativedelta(years=62)
             next_month = dt_62.replace(day=28) + relativedelta(days=4)
             dor = next_month - relativedelta(days=next_month.day)
         return dor
@@ -334,56 +357,6 @@ def load_mbu_data():
         return None
 
 @st.cache_data(ttl=30)
-def normalize_tid(val):
-    if pd.isnull(val):
-        return ""
-    s = str(val).strip().split('.')[0]
-    # Strip non-digits and leading zeros to ensure uniform join key
-    s_digits = ''.join(ch for ch in s if ch.isdigit())
-    return s_digits.lstrip('0') if s_digits else s
-
-def parse_indian_date(val):
-    if pd.isnull(val) or str(val).strip() in ['', 'nan', 'NaT', 'None']:
-        return None
-    if isinstance(val, (datetime, pd.Timestamp)):
-        return val.date()
-    val_str = str(val).strip().split(' ')[0]
-    # Try explicit dayfirst parsing
-    for fmt in ('%d-%m-%Y', '%d/%m/%Y', '%d.%m.%Y', '%Y-%m-%d', '%Y/%m/%d'):
-        try:
-            return datetime.strptime(val_str, fmt).date()
-        except ValueError:
-            pass
-    try:
-        dt = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
-        if pd.notnull(dt):
-            return dt.date()
-    except Exception:
-        pass
-    return None
-
-def calc_superannuation_62(dob_val):
-    dob = parse_indian_date(dob_val)
-    if not dob:
-        return None
-    try:
-        # Rule: Exact 62 Years Superannuation
-        # If DOB is 1st of month (e.g. 01-10-1964), DOR is the last day of PREVIOUS month (30-09-2026)
-        # If DOB is 2nd-31st of month (e.g. 15-09-1964), DOR is last day of SAME birth month (30-09-2026)
-        if dob.day == 1:
-            # 62 years from birth date, then subtract 1 day
-            dt_62 = dob + relativedelta(years=62)
-            dor = dt_62 - relativedelta(days=1)
-        else:
-            dt_62 = dob + relativedelta(years=62)
-            # Find last day of the birth month in year+62
-            next_month = dt_62.replace(day=28) + relativedelta(days=4)
-            dor = next_month - relativedelta(days=next_month.day)
-        return dor
-    except Exception:
-        return None
-
-@st.cache_data(ttl=30)
 def load_tis_data():
     actual_path = find_file(TIS_FILE_PATH)
     if not actual_path:
@@ -404,32 +377,30 @@ def load_tis_data():
         df_basic.columns = [str(c).strip() for c in df_basic.columns]
         df_appt.columns = [str(c).strip() for c in df_appt.columns]
         
-        # 1. West Godavari Filter on APPOINTMENT sheet (Primary working district)
+        # 1. Filter West Godavari on APPOINTMENT sheet
         a_dist = next((c for c in df_appt.columns if 'NEW' in c.upper() and 'DIST' in c.upper()), None)
         if not a_dist:
             a_dist = next((c for c in df_appt.columns if 'DISTRICTNAME' in c.upper() or 'DIST' in c.upper()), None)
         if a_dist:
             df_appt = df_appt[df_appt[a_dist].astype(str).str.strip().str.upper() == 'WEST GODAVARI']
 
-        # 2. Normalized Treasury ID Matching
+        # 2. Match Treasury IDs
         b_tid = next((c for c in df_basic.columns if 'TREASURY' in c.upper()), None)
         a_tid = next((c for c in df_appt.columns if 'TREASURY' in c.upper()), None)
 
         if not b_tid or not a_tid:
             return None
 
-        # Create standardized keys without zero padding conflicts
         df_basic['Join_TID'] = df_basic[b_tid].apply(normalize_tid)
         df_appt['Join_TID'] = df_appt[a_tid].apply(normalize_tid)
 
         df_basic = df_basic[df_basic['Join_TID'] != '']
         df_appt = df_appt[df_appt['Join_TID'] != '']
 
-        # Deduplicate on Join_TID
         df_appt_clean = df_appt.drop_duplicates(subset=['Join_TID'], keep='first')
         df_basic_clean = df_basic.drop_duplicates(subset=['Join_TID'], keep='first')
 
-        # 3. USE LEFT JOIN (Never drop appointment teachers even if basic details have slight mismatch)
+        # 3. Left join to retain all teachers from appointment sheet
         df_merged = pd.merge(
             df_appt_clean, 
             df_basic_clean, 
@@ -438,7 +409,7 @@ def load_tis_data():
             suffixes=('_appt', '_basic')
         )
 
-        # 4. Check Date of Birth from both sheets
+        # 4. Search DOB across merged sheets
         dob_col = next((c for c in df_merged.columns if 'DATEOFBIRTH' in c.upper() or c.upper() == 'DOB'), None)
         if not dob_col:
             dob_col = next((c for c in df_merged.columns if 'DOB' in c.upper()), None)
@@ -459,48 +430,8 @@ def load_tis_data():
     except Exception as e:
         st.error(f"Error reading TIS file: {e}")
         return None
-        df_basic[b_tid] = df_basic[b_tid].astype(str).str.strip()
-        df_appt[a_tid] = df_appt[a_tid].astype(str).str.strip()
 
-        # Remove invalid empty Treasury IDs
-        df_basic = df_basic[~df_basic[b_tid].isin(['', 'nan', 'NaT', 'None']) & df_basic[b_tid].notnull()]
-        df_appt = df_appt[~df_appt[a_tid].isin(['', 'nan', 'NaT', 'None']) & df_appt[a_tid].notnull()]
-
-        # 3. Deduplication per Treasury ID to prevent duplicates
-        df_appt_clean = df_appt.drop_duplicates(subset=[a_tid], keep='first')
-        df_basic_clean = df_basic.drop_duplicates(subset=[b_tid], keep='first')
-
-        # 4. Merge Basic & Appointment details
-        df_merged = pd.merge(
-            df_appt_clean, 
-            df_basic_clean, 
-            left_on=a_tid, 
-            right_on=b_tid, 
-            how='inner', 
-            suffixes=('_appt', '_basic')
-        )
-        df_merged = df_merged.drop_duplicates(subset=[a_tid], keep='first')
-
-        # 5. Parse DOB and compute Superannuation (62 Years)
-        dob_col = next((c for c in df_merged.columns if 'DATEOFBIRTH' in c.upper() or c.upper() == 'DOB'), None)
-        if dob_col:
-            df_merged['Parsed_DOB'] = df_merged[dob_col].apply(parse_indian_date)
-            df_merged['Calculated_DOR'] = df_merged['Parsed_DOB'].apply(calc_superannuation_62)
-            df_merged['Calculated_DOR'] = pd.to_datetime(df_merged['Calculated_DOR'])
-            df_merged['Retirement_Year'] = df_merged['Calculated_DOR'].dt.year
-            df_merged['Retirement_Month'] = df_merged['Calculated_DOR'].dt.month
-        else:
-            df_merged['Parsed_DOB'] = None
-            df_merged['Calculated_DOR'] = pd.NaT
-            df_merged['Retirement_Year'] = np.nan
-            df_merged['Retirement_Month'] = np.nan
-
-        return df_merged
-    except Exception as e:
-        st.error(f"Error reading TIS file: {e}")
-        return None
-
-# Load all Datasets
+# Load Datasets
 df = load_udise_data()
 df_cadre = load_cadre_data()
 df_mbu = load_mbu_data()
@@ -720,12 +651,12 @@ with tab1:
                 for m_name in sorted(df_clean[block_col].unique()):
                     sg_s = int(piv_s.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_s.columns and m_name in piv_s.index else 0
                     sg_b = int(piv_b.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_b.columns and m_name in piv_b.index else 0
-                    sg_g = int(piv_g.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_g.columns and m_name in piv_b.index else 0
+                    sg_g = int(piv_g.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_b.columns and m_name in piv_s.index else 0
                     sg_r = int(piv_r.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_r.columns and m_name in piv_s.index else 0
 
                     ai_s = int(piv_s.loc[m_name, 'AIDED']) if 'AIDED' in piv_s.columns and m_name in piv_s.index else 0
                     ai_b = int(piv_b.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_b.index else 0
-                    ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_b.index else 0
+                    ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_s.index else 0
                     ai_r = int(piv_r.loc[m_name, 'AIDED']) if 'AIDED' in piv_r.columns and m_name in piv_s.index else 0
 
                     pr_s = int(piv_s.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_s.columns and m_name in piv_s.index else 0
@@ -1097,10 +1028,13 @@ with tab2:
         df_tis_disp['DOB_Str'] = df_tis_disp['Parsed_DOB'].apply(lambda d: d.strftime('%d-%m-%Y') if d else 'N/A')
         df_tis_disp['DOR_Str'] = pd.to_datetime(df_tis_disp['Calculated_DOR'], errors='coerce').dt.strftime('%d-%m-%Y')
 
+        # Flexible Regex Matching for AP Cadre Designations
+        desig_series = df_tis_disp[t_desig].astype(str).str.upper()
+
         tot_teachers = len(df_tis_disp)
-        tot_hm = int(df_tis_disp[t_desig].astype(str).str.upper().str.contains('HM|HEADMASTER').sum())
-        tot_sa = int(df_tis_disp[t_desig].astype(str).str.upper().str.contains('SA|SCHOOL ASSISTANT').sum())
-        tot_sgt = int(df_tis_disp[t_desig].astype(str).str.upper().str.contains('SGT').sum())
+        tot_hm = int(desig_series.str.contains(r'HM|HEAD\s*MASTER', regex=True).sum())
+        tot_sa = int(desig_series.str.contains(r'\bSA\b|SCHOOL\s*ASST|SCHOOL\s*ASSISTANT', regex=True).sum())
+        tot_sgt = int(desig_series.str.contains(r'\bSGT\b|SECONDARY\s*GRADE', regex=True).sum())
 
         tc1, tc2, tc3, tc4 = st.columns(4)
         tc1.metric("West Godavari Working Teachers 👥", f"{tot_teachers:,}")
@@ -1218,7 +1152,6 @@ with tab2:
             curr_date = pd.to_datetime(date.today())
             valid_dor_df = df_tis_disp[df_tis_disp['Calculated_DOR'].notnull()].copy()
 
-            # Past and Future Metric Counts
             past_retired_cnt = len(valid_dor_df[valid_dor_df['Calculated_DOR'] < curr_date])
             ret_1y = valid_dor_df[(valid_dor_df['Calculated_DOR'] >= curr_date) & (valid_dor_df['Calculated_DOR'] <= curr_date + pd.DateOffset(years=1))]
             ret_2y = valid_dor_df[(valid_dor_df['Calculated_DOR'] >= curr_date) & (valid_dor_df['Calculated_DOR'] <= curr_date + pd.DateOffset(years=2))]
@@ -1231,7 +1164,6 @@ with tab2:
             r_m4.metric("Total Future Retirements 📊", f"{future_total_cnt:,}")
             st.markdown("---")
 
-            # Selection Mode Toggle: Specific Month/Year vs Presets
             filter_mode = st.radio(
                 "Select Search Filter Type:",
                 [
@@ -1245,7 +1177,6 @@ with tab2:
             if filter_mode == "📅 Specific Month & Year (Past & Future)":
                 col_sel_y, col_sel_m = st.columns(2)
                 
-                # Full list of years present in dataset (Past + Future)
                 all_years = sorted([int(y) for y in valid_dor_df['Retirement_Year'].dropna().unique()])
                 if not all_years:
                     all_years = [curr_date.year]
@@ -1260,7 +1191,6 @@ with tab2:
                     default_m_idx = curr_date.month if selected_year == curr_date.year else 0
                     selected_month_str = st.selectbox("Select Retirement Month:", month_options, index=default_m_idx)
 
-                # Filter dataset
                 if selected_month_str == "All Months":
                     target_ret_df = valid_dor_df[valid_dor_df['Retirement_Year'] == selected_year]
                     report_label = f"YEAR {selected_year}"
@@ -1306,7 +1236,6 @@ with tab2:
                     target_ret_df = valid_dor_df[valid_dor_df['Calculated_DOR'] < curr_date]
                 report_label = ret_preset_p.upper()
 
-            # Mandal Filter within Retirement view
             mandal_ret_choices = ["All Mandals"] + sorted([str(m) for m in target_ret_df[t_mandal].dropna().unique()])
             sel_m_ret = st.selectbox("Filter by Mandal (Optional):", mandal_ret_choices)
             if sel_m_ret != "All Mandals":
@@ -1351,7 +1280,6 @@ with tab2:
                     subtitle=f"District: West Godavari | Mandal: {sel_m_ret} | Total: {len(final_ret_table)}"
                 )
 
-            # Year-wise Consolidation Table (Past and Future breakdown)
             st.markdown("---")
             st.markdown("##### 📊 Complete Year-wise Retirement Abstract (Past & Future)")
             if not valid_dor_df.empty:
