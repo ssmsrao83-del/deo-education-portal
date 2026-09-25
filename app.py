@@ -356,8 +356,6 @@ def load_mbu_data():
         st.error(f"Error reading MBU file: {e}")
         return None
 
-@st.cache_data(ttl=30)
-@st.cache_data(ttl=1)
 @st.cache_data(ttl=0)
 def load_tis_data():
     actual_path = find_file(TIS_FILE_PATH)
@@ -379,13 +377,12 @@ def load_tis_data():
         df_basic.columns = [" ".join(str(c).split()).strip() for c in df_basic.columns]
         df_appt.columns = [" ".join(str(c).split()).strip() for c in df_appt.columns]
         
-        # 1. Flexible West Godavari Filter
+        # 1. District Filter (Flexible Matching for West Godavari)
         a_dist = next((c for c in df_appt.columns if 'NEW' in c.upper() and 'DIST' in c.upper()), None)
         if not a_dist:
             a_dist = next((c for c in df_appt.columns if 'DISTRICT' in c.upper()), None)
             
         if a_dist:
-            # Keep if district contains Godavari or West
             dist_mask = df_appt[a_dist].astype(str).str.upper().str.contains('GODAVARI|WEST', na=False)
             df_appt = df_appt[dist_mask]
 
@@ -676,18 +673,18 @@ with tab1:
                 for m_name in sorted(df_clean[block_col].unique()):
                     sg_s = int(piv_s.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_s.columns and m_name in piv_s.index else 0
                     sg_b = int(piv_b.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_b.columns and m_name in piv_b.index else 0
-                    sg_g = int(piv_g.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_b.columns and m_name in piv_s.index else 0
+                    sg_g = int(piv_g.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_b.columns and m_name in piv_b.index else 0
                     sg_r = int(piv_r.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_r.columns and m_name in piv_s.index else 0
 
                     ai_s = int(piv_s.loc[m_name, 'AIDED']) if 'AIDED' in piv_s.columns and m_name in piv_s.index else 0
-                    ai_b = int(piv_b.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_s.index else 0
-                    ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_s.index else 0
+                    ai_b = int(piv_b.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_b.index else 0
+                    ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_b.index else 0
                     ai_r = int(piv_r.loc[m_name, 'AIDED']) if 'AIDED' in piv_r.columns and m_name in piv_s.index else 0
 
                     pr_s = int(piv_s.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_s.columns and m_name in piv_s.index else 0
-                    pr_b = int(piv_b.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_s.index else 0
-                    pr_g = int(piv_g.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_s.index else 0
-                    pr_r = int(piv_r.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_r.columns and m_name in piv_s.index else 0
+                    pr_b = int(piv_b.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_b.index else 0
+                    pr_g = int(piv_g.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_b.index else 0
+                    pr_r = int(piv_r.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_b.index else 0
 
                     records.append({
                         "Mandal (Block)": m_name,
@@ -1038,7 +1035,10 @@ with tab2:
     else:
         t_tid = next((c for c in df_tis.columns if 'TREASURY' in c.upper()), 'TreasuryID')
         t_name = next((c for c in df_tis.columns if c.upper() in ['NAME', 'TEACHERNAME', 'NAME_APPT']), 'TeacherName')
+        
+        # Use Final_Designation prioritized for Gr II HM
         t_desig = 'Final_Designation' if 'Final_Designation' in df_tis.columns else next((c for c in df_tis.columns if 'DESIGNATION' in c.upper()), 'Designation')
+        
         t_subj = next((c for c in df_tis.columns if 'SUBJECT' in c.upper()), 'Subject')
         t_mandal = next((c for c in df_tis.columns if 'MANDAL' in c.upper()), 'MandalName')
         t_school = next((c for c in df_tis.columns if 'SCHOOL' in c.upper() and 'OLD' not in c.upper()), 'PresentWorkingSchool')
@@ -1053,7 +1053,7 @@ with tab2:
         df_tis_disp['DOB_Str'] = df_tis_disp['Parsed_DOB'].apply(lambda d: d.strftime('%d-%m-%Y') if d else 'N/A')
         df_tis_disp['DOR_Str'] = pd.to_datetime(df_tis_disp['Calculated_DOR'], errors='coerce').dt.strftime('%d-%m-%Y')
 
-        # Flexible Regex Matching for AP Cadre Designations
+        # Flexible Regex Matching for Cadres
         desig_series = df_tis_disp[t_desig].astype(str).str.upper()
 
         tot_teachers = len(df_tis_disp)
@@ -1177,7 +1177,6 @@ with tab2:
             curr_date = pd.to_datetime(date.today())
             valid_dor_df = df_tis_disp[df_tis_disp['Calculated_DOR'].notnull()].copy()
 
-            # Past and Future Metric Counts
             past_retired_cnt = len(valid_dor_df[valid_dor_df['Calculated_DOR'] < curr_date])
             ret_1y = valid_dor_df[(valid_dor_df['Calculated_DOR'] >= curr_date) & (valid_dor_df['Calculated_DOR'] <= curr_date + pd.DateOffset(years=1))]
             ret_2y = valid_dor_df[(valid_dor_df['Calculated_DOR'] >= curr_date) & (valid_dor_df['Calculated_DOR'] <= curr_date + pd.DateOffset(years=2))]
@@ -1190,7 +1189,6 @@ with tab2:
             r_m4.metric("Total Future Retirements 📊", f"{future_total_cnt:,}")
             st.markdown("---")
 
-            # Selection Mode Toggle
             filter_mode = st.radio(
                 "Select Search Filter Type:",
                 [
