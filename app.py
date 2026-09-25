@@ -655,13 +655,13 @@ with tab1:
                     sg_r = int(piv_r.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_r.columns and m_name in piv_s.index else 0
 
                     ai_s = int(piv_s.loc[m_name, 'AIDED']) if 'AIDED' in piv_s.columns and m_name in piv_s.index else 0
-                    ai_b = int(piv_b.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_b.index else 0
+                    ai_b = int(piv_b.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_s.index else 0
                     ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_s.index else 0
                     ai_r = int(piv_r.loc[m_name, 'AIDED']) if 'AIDED' in piv_r.columns and m_name in piv_s.index else 0
 
                     pr_s = int(piv_s.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_s.columns and m_name in piv_s.index else 0
-                    pr_b = int(piv_b.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_b.index else 0
-                    pr_g = int(piv_g.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_b.index else 0
+                    pr_b = int(piv_b.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_s.index else 0
+                    pr_g = int(piv_g.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_s.index else 0
                     pr_r = int(piv_r.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_r.columns and m_name in piv_s.index else 0
 
                     records.append({
@@ -1144,14 +1144,15 @@ with tab2:
                         subtitle=f"Mandal: {sel_tis_m} | Total Teachers: {len(sch_display)}"
                     )
 
-        # --- SUB-TAB 3: RETIREMENT TRACKER WITH PAST & FUTURE MONTH/YEAR SELECTION ---
+        # --- SUB-TAB 3: RETIREMENT TRACKER WITH DESIGNATION FIGURES & DATA ---
         with tis_t3:
             st.markdown("#### ⏳ Superannuation & Retirement Tracker (62 Years Rule)")
-            st.caption("Auto-computed Superannuation dates as per AP State Government 62 Years Rule (DD-MM-YYYY) - Covering Past & Future")
+            st.caption("Auto-computed Superannuation dates as per AP State Government 62 Years Rule (DD-MM-YYYY) - Designation & Cadre Wise Analysis")
 
             curr_date = pd.to_datetime(date.today())
             valid_dor_df = df_tis_disp[df_tis_disp['Calculated_DOR'].notnull()].copy()
 
+            # Past and Future Metric Counts
             past_retired_cnt = len(valid_dor_df[valid_dor_df['Calculated_DOR'] < curr_date])
             ret_1y = valid_dor_df[(valid_dor_df['Calculated_DOR'] >= curr_date) & (valid_dor_df['Calculated_DOR'] <= curr_date + pd.DateOffset(years=1))]
             ret_2y = valid_dor_df[(valid_dor_df['Calculated_DOR'] >= curr_date) & (valid_dor_df['Calculated_DOR'] <= curr_date + pd.DateOffset(years=2))]
@@ -1164,6 +1165,7 @@ with tab2:
             r_m4.metric("Total Future Retirements 📊", f"{future_total_cnt:,}")
             st.markdown("---")
 
+            # Selection Mode Toggle
             filter_mode = st.radio(
                 "Select Search Filter Type:",
                 [
@@ -1236,14 +1238,56 @@ with tab2:
                     target_ret_df = valid_dor_df[valid_dor_df['Calculated_DOR'] < curr_date]
                 report_label = ret_preset_p.upper()
 
-            mandal_ret_choices = ["All Mandals"] + sorted([str(m) for m in target_ret_df[t_mandal].dropna().unique()])
-            sel_m_ret = st.selectbox("Filter by Mandal (Optional):", mandal_ret_choices)
+            # --- 1. DESIGNATION-WISE RETIREMENT FIGURES (SUMMARY ABSTRACT) ---
+            st.markdown("---")
+            st.markdown(f"##### 📊 Cadre / Designation-wise Retirement Figures ({report_label})")
+            
+            if not target_ret_df.empty:
+                desig_summary = target_ret_df.groupby(t_desig).agg(
+                    Total_Retirements=(t_tid, 'count')
+                ).reset_index().rename(columns={t_desig: 'Cadre / Designation'})
+                
+                desig_summary = desig_summary.sort_values(by='Total_Retirements', ascending=False)
+                desig_summary_total = append_total_row(desig_summary, label_col='Cadre / Designation', total_label='TOTAL RETIREMENTS')
+                
+                col_d_tbl, col_d_chart = st.columns([3, 2])
+                with col_d_tbl:
+                    st.dataframe(desig_summary_total, use_container_width=True, hide_index=True)
+                with col_d_chart:
+                    tot_sel = len(target_ret_df)
+                    sel_hms = int(target_ret_df[t_desig].astype(str).str.upper().str.contains(r'HM|HEAD\s*MASTER').sum())
+                    sel_sas = int(target_ret_df[t_desig].astype(str).str.upper().str.contains(r'\bSA\b|SCHOOL\s*ASST').sum())
+                    sel_sgts = int(target_ret_df[t_desig].astype(str).str.upper().str.contains(r'\bSGT\b|SECONDARY\s*GRADE').sum())
+                    sel_others = tot_sel - (sel_hms + sel_sas + sel_sgts)
+                    
+                    st.metric(f"Gr II HMs Retiring 🏫", f"{sel_hms:,}")
+                    st.metric(f"School Assistants (SA) 📚", f"{sel_sas:,}")
+                    st.metric(f"SGTs Retiring ✏️", f"{sel_sgts:,}")
+                    if sel_others > 0:
+                        st.metric(f"Other Cadres 👥", f"{sel_others:,}")
+
+            # --- 2. FILTERS FOR DETAILED TEACHERS LIST (MANDAL & DESIGNATION) ---
+            st.markdown("---")
+            st.markdown(f"##### 👥 Detailed Retiring Teachers List ({report_label})")
+            
+            col_f_man, col_f_desig = st.columns(2)
+            with col_f_man:
+                mandal_ret_choices = ["All Mandals"] + sorted([str(m) for m in target_ret_df[t_mandal].dropna().unique() if str(m).strip()])
+                sel_m_ret = st.selectbox("Filter by Mandal (Optional):", mandal_ret_choices, key="ret_mandal_select_filter")
+                
+            with col_f_desig:
+                desig_ret_choices = ["All Designations"] + sorted([str(d) for d in target_ret_df[t_desig].dropna().unique() if str(d).strip()])
+                sel_d_ret = st.selectbox("Filter by Designation / Cadre (Optional):", desig_ret_choices, key="ret_desig_select_filter")
+
+            filtered_target_df = target_ret_df.copy()
             if sel_m_ret != "All Mandals":
-                target_ret_df = target_ret_df[target_ret_df[t_mandal] == sel_m_ret]
+                filtered_target_df = filtered_target_df[filtered_target_df[t_mandal] == sel_m_ret]
+            if sel_d_ret != "All Designations":
+                filtered_target_df = filtered_target_df[filtered_target_df[t_desig] == sel_d_ret]
 
-            target_ret_df = target_ret_df.sort_values(by='Calculated_DOR')
+            filtered_target_df = filtered_target_df.sort_values(by='Calculated_DOR')
 
-            st.info(f"📋 Teachers Found ({report_label} | {sel_m_ret}): **{len(target_ret_df)}**")
+            st.info(f"📋 Teachers Found: **{len(filtered_target_df)}** (Period: **{report_label}** | Mandal: **{sel_m_ret}** | Cadre: **{sel_d_ret}**)")
 
             ret_disp_cols = [
                 t_tid, t_name, t_desig, t_subj, t_school, t_mandal, 'DOB_Str', 'DOR_Str'
@@ -1259,7 +1303,7 @@ with tab2:
                 'DOR_Str': 'Retirement Date'
             }
 
-            final_ret_table = target_ret_df[[c for c in ret_disp_cols if c in target_ret_df.columns]].rename(columns=ret_rename)
+            final_ret_table = filtered_target_df[[c for c in ret_disp_cols if c in filtered_target_df.columns]].rename(columns=ret_rename)
             st.dataframe(final_ret_table, use_container_width=True, hide_index=True)
 
             col_rp1, col_rp2 = st.columns([1, 1])
@@ -1268,29 +1312,71 @@ with tab2:
                 with pd.ExcelWriter(r_buf, engine='openpyxl') as writer:
                     final_ret_table.to_excel(writer, index=False, sheet_name='Retirements')
                 st.download_button(
-                    f"📥 Download Teachers List ({report_label}) Excel", 
+                    f"📥 Download Retiring Teachers ({report_label}) Excel", 
                     data=r_buf.getvalue(), 
-                    file_name=f"Teachers_Retirement_{report_label.replace(' ', '_')}.xlsx",
+                    file_name=f"Teachers_Retirement_{report_label.replace(' ', '_')}_{sel_d_ret[:15].replace(' ', '_')}.xlsx",
                     use_container_width=True
                 )
             with col_rp2:
                 render_print_button(
                     final_ret_table, 
                     report_title=f"RETIREMENT REPORT - {report_label}", 
-                    subtitle=f"District: West Godavari | Mandal: {sel_m_ret} | Total: {len(final_ret_table)}"
+                    subtitle=f"District: West Godavari | Mandal: {sel_m_ret} | Cadre: {sel_d_ret} | Total: {len(final_ret_table)}"
                 )
 
+            # --- 3. YEAR-WISE & CADRE CROSS CONSOLIDATION ABSTRACT ---
             st.markdown("---")
-            st.markdown("##### 📊 Complete Year-wise Retirement Abstract (Past & Future)")
+            st.markdown("##### 🏛️ Year-wise Cadre Breakdown Abstract (District Overview)")
             if not valid_dor_df.empty:
-                full_y_summary = valid_dor_df.groupby('Retirement_Year').agg(
-                    Total_Retirements=(t_tid, 'count')
+                def get_broad_cadre(val):
+                    vu = str(val).upper()
+                    if 'HEAD MASTER' in vu or 'HM' in vu or 'HEADMASTER' in vu:
+                        return 'Gr II HM'
+                    elif 'SCHOOL ASST' in vu or 'SA ' in vu or 'SCHOOL ASSISTANT' in vu:
+                        return 'School Assistant'
+                    elif 'SECONDARY GRADE' in vu or 'SGT' in vu:
+                        return 'SGT'
+                    return 'Other Cadres'
+
+                summary_df = valid_dor_df.copy()
+                summary_df['Broad_Cadre'] = summary_df[t_desig].apply(get_broad_cadre)
+                
+                cross_piv = summary_df.pivot_table(
+                    index='Retirement_Year', 
+                    columns='Broad_Cadre', 
+                    values=t_tid, 
+                    aggfunc='count', 
+                    fill_value=0
                 ).reset_index()
-                full_y_summary['Status'] = np.where(full_y_summary['Retirement_Year'] < curr_date.year, 'Past (Already Retired)', 'Future (Upcoming)')
-                full_y_summary['Retirement_Year'] = full_y_summary['Retirement_Year'].astype(int).astype(str)
-                full_y_summary = full_y_summary[['Retirement_Year', 'Status', 'Total_Retirements']]
-                full_y_summary_total = append_total_row(full_y_summary, label_col='Retirement_Year', total_label='DISTRICT TOTAL')
-                st.dataframe(full_y_summary_total, use_container_width=True, hide_index=True)
+
+                cadre_cols_order = [c for c in ['Gr II HM', 'School Assistant', 'SGT', 'Other Cadres'] if c in cross_piv.columns]
+                cross_piv['Total Retirements'] = cross_piv[cadre_cols_order].sum(axis=1)
+                cross_piv['Status'] = np.where(cross_piv['Retirement_Year'] < curr_date.year, 'Past (Retired)', 'Future (Upcoming)')
+                cross_piv['Retirement_Year'] = cross_piv['Retirement_Year'].astype(int).astype(str)
+
+                final_cross_cols = ['Retirement_Year', 'Status'] + cadre_cols_order + ['Total Retirements']
+                cross_piv_display = cross_piv[final_cross_cols]
+                cross_piv_total = append_total_row(cross_piv_display, label_col='Retirement_Year', total_label='DISTRICT TOTAL')
+                
+                st.dataframe(cross_piv_total, use_container_width=True, hide_index=True)
+
+                col_cp1, col_cp2 = st.columns([1, 1])
+                with col_cp1:
+                    cp_buf = io.BytesIO()
+                    with pd.ExcelWriter(cp_buf, engine='openpyxl') as writer:
+                        cross_piv_total.to_excel(writer, index=False, sheet_name='Year_Cadre_Matrix')
+                    st.download_button(
+                        "📥 Download Year vs Cadre Retirement Matrix (Excel)", 
+                        data=cp_buf.getvalue(), 
+                        file_name="District_Year_Cadre_Retirement_Matrix.xlsx",
+                        use_container_width=True
+                    )
+                with col_cp2:
+                    render_print_button(
+                        cross_piv_total, 
+                        report_title="DISTRICT YEAR-WISE CADRE RETIREMENT MATRIX", 
+                        subtitle="Gr II HM vs SA vs SGT vs Others"
+                    )
 
 # =========================================================
 # ------------ TAB 3: CADRE STRENGTH & VACANCY ------------
