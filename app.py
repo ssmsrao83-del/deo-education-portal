@@ -1034,7 +1034,7 @@ with tab2:
     else:
         t_tid = next((c for c in df_tis.columns if 'TREASURY' in c.upper()), 'TreasuryID')
         t_name = next((c for c in df_tis.columns if c.upper() in ['NAME', 'TEACHERNAME', 'NAME_APPT']), 'TeacherName')
-        t_desig = next((c for c in df_tis.columns if 'DESIGNATION' in c.upper()), 'Designation')
+        t_desig = 'Final_Designation' if 'Final_Designation' in df_tis.columns else next((c for c in df_tis.columns if 'DESIGNATION' in c.upper()), 'Designation')
         t_subj = next((c for c in df_tis.columns if 'SUBJECT' in c.upper()), 'Subject')
         t_mandal = next((c for c in df_tis.columns if 'MANDAL' in c.upper()), 'MandalName')
         t_school = next((c for c in df_tis.columns if 'SCHOOL' in c.upper() and 'OLD' not in c.upper()), 'PresentWorkingSchool')
