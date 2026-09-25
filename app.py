@@ -358,6 +358,7 @@ def load_mbu_data():
 
 @st.cache_data(ttl=30)
 @st.cache_data(ttl=1)
+@st.cache_data(ttl=0)
 def load_tis_data():
     actual_path = find_file(TIS_FILE_PATH)
     if not actual_path:
@@ -378,12 +379,15 @@ def load_tis_data():
         df_basic.columns = [" ".join(str(c).split()).strip() for c in df_basic.columns]
         df_appt.columns = [" ".join(str(c).split()).strip() for c in df_appt.columns]
         
-        # 1. District filter (West Godavari)
+        # 1. Flexible West Godavari Filter
         a_dist = next((c for c in df_appt.columns if 'NEW' in c.upper() and 'DIST' in c.upper()), None)
         if not a_dist:
             a_dist = next((c for c in df_appt.columns if 'DISTRICT' in c.upper()), None)
+            
         if a_dist:
-            df_appt = df_appt[df_appt[a_dist].astype(str).str.strip().str.upper() == 'WEST GODAVARI']
+            # Keep if district contains Godavari or West
+            dist_mask = df_appt[a_dist].astype(str).str.upper().str.contains('GODAVARI|WEST', na=False)
+            df_appt = df_appt[dist_mask]
 
         b_tid = next((c for c in df_basic.columns if 'TREASURY' in c.upper()), None)
         a_tid = next((c for c in df_appt.columns if 'TREASURY' in c.upper()), None)
@@ -397,11 +401,10 @@ def load_tis_data():
         df_basic = df_basic[df_basic['Join_TID'] != '']
         df_appt = df_appt[df_appt['Join_TID'] != '']
 
-        # KEEP LATEST APPOINTMENT (If multiple promotions exist, keep the active/latest post)
-        # Sort so that HEAD MASTER(GR_2) or current post gets highest priority
-        desig_col_temp = next((c for c in df_appt.columns if 'DESIGNATION' in c.upper()), None)
-        if desig_col_temp:
-            df_appt['is_hm'] = df_appt[desig_col_temp].astype(str).str.upper().str.contains('HEAD MASTER|GR_2').astype(int)
+        # 2. Prioritize HEAD MASTER(GR_2) in Appointment Records
+        desig_col_appt = next((c for c in df_appt.columns if 'DESIGNATION' in c.upper()), None)
+        if desig_col_appt:
+            df_appt['is_hm'] = df_appt[desig_col_appt].astype(str).str.upper().str.contains('HEAD MASTER|GR_2').astype(int)
             df_appt = df_appt.sort_values(by=['Join_TID', 'is_hm'], ascending=[True, True])
             df_appt_clean = df_appt.drop_duplicates(subset=['Join_TID'], keep='last')
         else:
@@ -409,7 +412,7 @@ def load_tis_data():
 
         df_basic_clean = df_basic.drop_duplicates(subset=['Join_TID'], keep='first')
 
-        # Merge
+        # 3. Merge
         df_merged = pd.merge(
             df_appt_clean, 
             df_basic_clean, 
@@ -418,22 +421,23 @@ def load_tis_data():
             suffixes=('_appt', '_basic')
         )
 
-        # 2. Prefer Present Working Designation
-        # If Designation is present in basic or appt, choose the one with HEAD MASTER(GR_2)
-        d_appt = next((c for c in df_merged.columns if c.startswith('Designation_appt') or c == 'Designation'), None)
-        d_basic = next((c for c in df_merged.columns if c.startswith('Designation_basic')), None)
-        
-        if d_basic and d_appt:
-            # If basic has HM or current post, take it, else appt
-            df_merged['Final_Designation'] = np.where(
-                df_merged[d_appt].astype(str).str.upper().str.contains('HEAD MASTER|GR_2'),
-                df_merged[d_appt],
-                np.where(df_merged[d_basic].notnull() & (df_merged[d_basic] != ''), df_merged[d_basic], df_merged[d_appt])
-            )
-        else:
-            df_merged['Final_Designation'] = df_merged[d_appt] if d_appt else "N/A"
+        # 4. Final Designation Selection: Prefer HM if present anywhere
+        c_desig_appt = next((c for c in df_merged.columns if c.startswith('Designation_appt') or c == 'Designation'), None)
+        c_desig_basic = next((c for c in df_merged.columns if c.startswith('Designation_basic')), None)
 
-        # 3. DOB Parsing
+        def pick_best_desig(row):
+            val_a = str(row[c_desig_appt]).strip() if c_desig_appt and pd.notnull(row[c_desig_appt]) else ""
+            val_b = str(row[c_desig_basic]).strip() if c_desig_basic and pd.notnull(row[c_desig_basic]) else ""
+            
+            if 'HEAD MASTER(GR_2)' in val_a.upper() or 'HEAD MASTER' in val_a.upper():
+                return val_a
+            if 'HEAD MASTER(GR_2)' in val_b.upper() or 'HEAD MASTER' in val_b.upper():
+                return val_b
+            return val_a if val_a and val_a != 'nan' else val_b
+
+        df_merged['Final_Designation'] = df_merged.apply(pick_best_desig, axis=1)
+
+        # 5. DOB Parsing across merged columns
         dob_col = next((c for c in df_merged.columns if 'DATEOFBIRTH' in c.upper() or 'DOB' in c.upper()), None)
         if dob_col:
             df_merged['Parsed_DOB'] = df_merged[dob_col].apply(parse_indian_date)
