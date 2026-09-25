@@ -357,6 +357,7 @@ def load_mbu_data():
         return None
 
 @st.cache_data(ttl=30)
+@st.cache_data(ttl=1)
 def load_tis_data():
     actual_path = find_file(TIS_FILE_PATH)
     if not actual_path:
@@ -374,17 +375,16 @@ def load_tis_data():
         df_basic = pd.read_excel(actual_path, sheet_name=b_sheet)
         df_appt = pd.read_excel(actual_path, sheet_name=a_sheet)
         
-        df_basic.columns = [str(c).strip() for c in df_basic.columns]
-        df_appt.columns = [str(c).strip() for c in df_appt.columns]
+        df_basic.columns = [" ".join(str(c).split()).strip() for c in df_basic.columns]
+        df_appt.columns = [" ".join(str(c).split()).strip() for c in df_appt.columns]
         
-        # 1. Filter West Godavari on APPOINTMENT sheet
+        # 1. District filter (West Godavari)
         a_dist = next((c for c in df_appt.columns if 'NEW' in c.upper() and 'DIST' in c.upper()), None)
         if not a_dist:
-            a_dist = next((c for c in df_appt.columns if 'DISTRICTNAME' in c.upper() or 'DIST' in c.upper()), None)
+            a_dist = next((c for c in df_appt.columns if 'DISTRICT' in c.upper()), None)
         if a_dist:
             df_appt = df_appt[df_appt[a_dist].astype(str).str.strip().str.upper() == 'WEST GODAVARI']
 
-        # 2. Match Treasury IDs
         b_tid = next((c for c in df_basic.columns if 'TREASURY' in c.upper()), None)
         a_tid = next((c for c in df_appt.columns if 'TREASURY' in c.upper()), None)
 
@@ -397,10 +397,19 @@ def load_tis_data():
         df_basic = df_basic[df_basic['Join_TID'] != '']
         df_appt = df_appt[df_appt['Join_TID'] != '']
 
-        df_appt_clean = df_appt.drop_duplicates(subset=['Join_TID'], keep='first')
+        # KEEP LATEST APPOINTMENT (If multiple promotions exist, keep the active/latest post)
+        # Sort so that HEAD MASTER(GR_2) or current post gets highest priority
+        desig_col_temp = next((c for c in df_appt.columns if 'DESIGNATION' in c.upper()), None)
+        if desig_col_temp:
+            df_appt['is_hm'] = df_appt[desig_col_temp].astype(str).str.upper().str.contains('HEAD MASTER|GR_2').astype(int)
+            df_appt = df_appt.sort_values(by=['Join_TID', 'is_hm'], ascending=[True, True])
+            df_appt_clean = df_appt.drop_duplicates(subset=['Join_TID'], keep='last')
+        else:
+            df_appt_clean = df_appt.drop_duplicates(subset=['Join_TID'], keep='last')
+
         df_basic_clean = df_basic.drop_duplicates(subset=['Join_TID'], keep='first')
 
-        # 3. Left join to retain all teachers from appointment sheet
+        # Merge
         df_merged = pd.merge(
             df_appt_clean, 
             df_basic_clean, 
@@ -409,11 +418,23 @@ def load_tis_data():
             suffixes=('_appt', '_basic')
         )
 
-        # 4. Search DOB across merged sheets
-        dob_col = next((c for c in df_merged.columns if 'DATEOFBIRTH' in c.upper() or c.upper() == 'DOB'), None)
-        if not dob_col:
-            dob_col = next((c for c in df_merged.columns if 'DOB' in c.upper()), None)
+        # 2. Prefer Present Working Designation
+        # If Designation is present in basic or appt, choose the one with HEAD MASTER(GR_2)
+        d_appt = next((c for c in df_merged.columns if c.startswith('Designation_appt') or c == 'Designation'), None)
+        d_basic = next((c for c in df_merged.columns if c.startswith('Designation_basic')), None)
+        
+        if d_basic and d_appt:
+            # If basic has HM or current post, take it, else appt
+            df_merged['Final_Designation'] = np.where(
+                df_merged[d_appt].astype(str).str.upper().str.contains('HEAD MASTER|GR_2'),
+                df_merged[d_appt],
+                np.where(df_merged[d_basic].notnull() & (df_merged[d_basic] != ''), df_merged[d_basic], df_merged[d_appt])
+            )
+        else:
+            df_merged['Final_Designation'] = df_merged[d_appt] if d_appt else "N/A"
 
+        # 3. DOB Parsing
+        dob_col = next((c for c in df_merged.columns if 'DATEOFBIRTH' in c.upper() or 'DOB' in c.upper()), None)
         if dob_col:
             df_merged['Parsed_DOB'] = df_merged[dob_col].apply(parse_indian_date)
             df_merged['Calculated_DOR'] = df_merged['Parsed_DOB'].apply(calc_superannuation_62)
