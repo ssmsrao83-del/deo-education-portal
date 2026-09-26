@@ -357,6 +357,7 @@ def load_mbu_data():
         return None
 
 @st.cache_data(ttl=0)
+@st.cache_data(ttl=0)
 def load_tis_data():
     actual_path = find_file(TIS_FILE_PATH)
     if not actual_path:
@@ -375,13 +376,16 @@ def load_tis_data():
             df_basic.columns = [" ".join(str(c).split()).strip() for c in df_basic.columns]
             df_appt.columns = [" ".join(str(c).split()).strip() for c in df_appt.columns]
             
-            a_dist = next((c for c in df_appt.columns if 'NEW' in c.upper() and 'DIST' in c.upper()), None)
-            if not a_dist:
-                a_dist = next((c for c in df_appt.columns if 'DISTRICT' in c.upper()), None)
+            # --- STRICT FILTER: NEW DistrictName == WEST GODAVARI ONLY ---
+            # Mundu NEW DistrictName column kosam vethukuthundi
+            new_dist_col = next((c for c in df_appt.columns if 'NEW' in c.upper() and 'DIST' in c.upper()), None)
+            if not new_dist_col:
+                new_dist_col = next((c for c in df_appt.columns if 'DISTRICT' in c.upper() and 'OLD' not in c.upper()), None)
                 
-            if a_dist:
-                dist_mask = df_appt[a_dist].astype(str).str.upper().str.contains('GODAVARI|WEST', na=False)
-                df_appt = df_appt[dist_mask]
+            if new_dist_col:
+                # Eluru, East Godavari raakunda exact gaa 'WEST GODAVARI' matrame filter chesthundi
+                clean_dist = df_appt[new_dist_col].astype(str).str.strip().str.upper()
+                df_appt = df_appt[clean_dist == 'WEST GODAVARI']
 
             b_tid = next((c for c in df_basic.columns if 'TREASURY' in c.upper()), None)
             a_tid = next((c for c in df_appt.columns if 'TREASURY' in c.upper()), None)
@@ -443,9 +447,16 @@ def load_tis_data():
             return df_merged
 
         else:
-            # Single Sheet Workbook Format
             df_single = pd.read_excel(actual_path)
             df_single.columns = [" ".join(str(c).split()).strip() for c in df_single.columns]
+            
+            # Single sheet aithe kuda strict filter
+            new_dist_col = next((c for c in df_single.columns if 'NEW' in c.upper() and 'DIST' in c.upper()), None)
+            if not new_dist_col:
+                new_dist_col = next((c for c in df_single.columns if 'DISTRICT' in c.upper() and 'OLD' not in c.upper()), None)
+            if new_dist_col:
+                clean_dist = df_single[new_dist_col].astype(str).str.strip().str.upper()
+                df_single = df_single[clean_dist == 'WEST GODAVARI']
             
             d_col = next((c for c in df_single.columns if 'DESIGNATION' in c.upper()), 'Designation')
             df_single['Final_Designation'] = df_single[d_col]
@@ -462,7 +473,6 @@ def load_tis_data():
     except Exception as e:
         st.error(f"Error reading TIS file: {e}")
         return None
-
 # Load Datasets
 df = load_udise_data()
 df_cadre = load_cadre_data()
