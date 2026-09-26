@@ -1730,3 +1730,102 @@ with tab3:
 # =========================================================
 with tab4:
     st.info("📄 CSE MIS Reports - Module Coming Soon")
+    # =========================================================
+# ------------------ TAB 4: MIS REPORTS -------------------
+# =========================================================
+with tab4:
+    st.subheader("📑 PDM Proforma Verification (PDF to Excel Converter)")
+    st.caption("Auto-extract all 20 Mandals & all fields from 'WG-PDF PROFORMA BEFORE SIGNED.pdf'")
+
+    pdf_target_name = "WG-PDF PROFORMA BEFORE SIGNED.pdf"
+    found_pdf = find_file(pdf_target_name)
+
+    if not found_pdf:
+        st.warning(f"⚠️ '{pdf_target_name}' file GitHub repo lo kanipinchaledhu. Upload chesina file name check cheyandi.")
+    else:
+        st.success(f"✅ '{found_pdf}' dorikindi!")
+        
+        if st.button("🚀 Convert 1516 Pages PDF to Excel Now", type="primary"):
+            import pdfplumber
+            
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            records_left = []
+            records_right = []
+            
+            with pdfplumber.open(found_pdf) as pdf:
+                total_pages = len(pdf.pages)
+                status_text.text(f"Processing total {total_pages} pages...")
+                
+                for idx, page in enumerate(pdf.pages):
+                    table = page.extract_table()
+                    if table:
+                        page_num = idx + 1
+                        # Odd pages: Left table
+                        if page_num % 2 != 0:
+                            for row in table:
+                                if not row or not row[0]:
+                                    continue
+                                sno = str(row[0]).strip().split('\n')[0]
+                                if sno.isdigit():
+                                    clean_row = [str(c).replace('\n', ' ').strip() if c else "" for c in row]
+                                    records_left.append({
+                                        "S_No": int(sno),
+                                        "MANDAL": clean_row[1] if len(clean_row) > 1 else "",
+                                        "UDISE_Code": clean_row[2] if len(clean_row) > 2 else "",
+                                        "MANAGEMENT": clean_row[3] if len(clean_row) > 3 else "",
+                                        "cdm_ddo_code": clean_row[4] if len(clean_row) > 4 else "",
+                                        "cdm_ddo_desc": clean_row[5] if len(clean_row) > 5 else "",
+                                        "cdm_org_id": clean_row[6] if len(clean_row) > 6 else "",
+                                        "cdm_org_name": clean_row[7] if len(clean_row) > 7 else "",
+                                        "position_id": clean_row[8] if len(clean_row) > 8 else "",
+                                        "position_name": clean_row[9] if len(clean_row) > 9 else "",
+                                        "cfms_id": clean_row[10] if len(clean_row) > 10 else "",
+                                        "employee_name": clean_row[11] if len(clean_row) > 11 else ""
+                                    })
+                        # Even pages: Right table
+                        else:
+                            for row in table:
+                                if not row or not row[0]:
+                                    continue
+                                sno = str(row[0]).strip().split('\n')[0]
+                                if sno.isdigit():
+                                    clean_row = [str(c).replace('\n', ' ').strip() if c else "" for c in row]
+                                    records_right.append({
+                                        "S_No": int(sno),
+                                        "nature_of_post": clean_row[2] if len(clean_row) > 2 else "",
+                                        "working_arrangement": clean_row[3] if len(clean_row) > 3 else "",
+                                        "working_status": clean_row[4] if len(clean_row) > 4 else "",
+                                        "employee_working_type": clean_row[5] if len(clean_row) > 5 else "",
+                                        "reason_for_the_vacancy": clean_row[6] if len(clean_row) > 6 else "",
+                                        "method_of_appointment": clean_row[7] if len(clean_row) > 7 else "",
+                                        "Remarks": clean_row[8] if len(clean_row) > 8 else ""
+                                    })
+                                    
+                    if (idx + 1) % 50 == 0 or (idx + 1) == total_pages:
+                        prog = (idx + 1) / total_pages
+                        progress_bar.progress(prog)
+                        status_text.text(f"Processed {idx + 1} of {total_pages} pages...")
+
+            status_text.text("Merging Left and Right tables by S.No...")
+            df_l = pd.DataFrame(records_left).drop_duplicates(subset=['S_No'])
+            df_r = pd.DataFrame(records_right).drop_duplicates(subset=['S_No'])
+            df_pdm_all = pd.merge(df_l, df_r, on='S_No', how='left')
+            
+            st.success(f"🎉 Process Complete! Extracted {len(df_pdm_all):,} records across all Mandals.")
+            st.dataframe(df_pdm_all.head(50), use_container_width=True)
+            
+            # Excel Download Button
+            out_buf = io.BytesIO()
+            with pd.ExcelWriter(out_buf, engine='openpyxl') as writer:
+                df_pdm_all.to_excel(writer, index=False, sheet_name='PDM_Master_Data')
+                
+            st.download_button(
+                "📥 Download Complete PDM Proforma Master Excel",
+                data=out_buf.getvalue(),
+                file_name="ALL_20_MANDALS_PDM_PROFORMA_MASTER.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True
+            )
