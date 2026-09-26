@@ -24,7 +24,7 @@ TIS_FILE_PATH = "TIS DATA.xlsx"
 
 MANAGEMENT_MAPPING = {
     10: "10 - State Govt.",
-    24: "24 - APSWREI Society SchoolS",
+    24: "24 - APSWREI Society Schools",
     33: "33 - MPP_ZPP SCHOOLS",
     34: "34 - MUNCIPAL",
     35: "35 - Pvt.Aided",
@@ -368,87 +368,97 @@ def load_tis_data():
         b_sheet = next((s for s in sheet_names if 'BASIC' in s.upper()), None)
         a_sheet = next((s for s in sheet_names if 'APPOINT' in s.upper()), None)
         
-        if not b_sheet or not a_sheet:
-            return None
+        if b_sheet and a_sheet:
+            df_basic = pd.read_excel(actual_path, sheet_name=b_sheet)
+            df_appt = pd.read_excel(actual_path, sheet_name=a_sheet)
             
-        df_basic = pd.read_excel(actual_path, sheet_name=b_sheet)
-        df_appt = pd.read_excel(actual_path, sheet_name=a_sheet)
-        
-        df_basic.columns = [" ".join(str(c).split()).strip() for c in df_basic.columns]
-        df_appt.columns = [" ".join(str(c).split()).strip() for c in df_appt.columns]
-        
-        # 1. District Filter (Flexible Matching for West Godavari)
-        a_dist = next((c for c in df_appt.columns if 'NEW' in c.upper() and 'DIST' in c.upper()), None)
-        if not a_dist:
-            a_dist = next((c for c in df_appt.columns if 'DISTRICT' in c.upper()), None)
+            df_basic.columns = [" ".join(str(c).split()).strip() for c in df_basic.columns]
+            df_appt.columns = [" ".join(str(c).split()).strip() for c in df_appt.columns]
             
-        if a_dist:
-            dist_mask = df_appt[a_dist].astype(str).str.upper().str.contains('GODAVARI|WEST', na=False)
-            df_appt = df_appt[dist_mask]
+            a_dist = next((c for c in df_appt.columns if 'NEW' in c.upper() and 'DIST' in c.upper()), None)
+            if not a_dist:
+                a_dist = next((c for c in df_appt.columns if 'DISTRICT' in c.upper()), None)
+                
+            if a_dist:
+                dist_mask = df_appt[a_dist].astype(str).str.upper().str.contains('GODAVARI|WEST', na=False)
+                df_appt = df_appt[dist_mask]
 
-        b_tid = next((c for c in df_basic.columns if 'TREASURY' in c.upper()), None)
-        a_tid = next((c for c in df_appt.columns if 'TREASURY' in c.upper()), None)
+            b_tid = next((c for c in df_basic.columns if 'TREASURY' in c.upper()), None)
+            a_tid = next((c for c in df_appt.columns if 'TREASURY' in c.upper()), None)
 
-        if not b_tid or not a_tid:
-            return None
+            if not b_tid or not a_tid:
+                return None
 
-        df_basic['Join_TID'] = df_basic[b_tid].apply(normalize_tid)
-        df_appt['Join_TID'] = df_appt[a_tid].apply(normalize_tid)
+            df_basic['Join_TID'] = df_basic[b_tid].apply(normalize_tid)
+            df_appt['Join_TID'] = df_appt[a_tid].apply(normalize_tid)
 
-        df_basic = df_basic[df_basic['Join_TID'] != '']
-        df_appt = df_appt[df_appt['Join_TID'] != '']
+            df_basic = df_basic[df_basic['Join_TID'] != '']
+            df_appt = df_appt[df_appt['Join_TID'] != '']
 
-        # 2. Prioritize HEAD MASTER(GR_2) in Appointment Records
-        desig_col_appt = next((c for c in df_appt.columns if 'DESIGNATION' in c.upper()), None)
-        if desig_col_appt:
-            df_appt['is_hm'] = df_appt[desig_col_appt].astype(str).str.upper().str.contains('HEAD MASTER|GR_2').astype(int)
-            df_appt = df_appt.sort_values(by=['Join_TID', 'is_hm'], ascending=[True, True])
-            df_appt_clean = df_appt.drop_duplicates(subset=['Join_TID'], keep='last')
+            desig_col_appt = next((c for c in df_appt.columns if 'DESIGNATION' in c.upper()), None)
+            if desig_col_appt:
+                df_appt['is_hm'] = df_appt[desig_col_appt].astype(str).str.upper().str.contains('HEAD MASTER|GR_2').astype(int)
+                df_appt = df_appt.sort_values(by=['Join_TID', 'is_hm'], ascending=[True, True])
+                df_appt_clean = df_appt.drop_duplicates(subset=['Join_TID'], keep='last')
+            else:
+                df_appt_clean = df_appt.drop_duplicates(subset=['Join_TID'], keep='last')
+
+            df_basic_clean = df_basic.drop_duplicates(subset=['Join_TID'], keep='first')
+
+            df_merged = pd.merge(
+                df_appt_clean, 
+                df_basic_clean, 
+                on='Join_TID', 
+                how='left', 
+                suffixes=('_appt', '_basic')
+            )
+
+            c_desig_appt = next((c for c in df_merged.columns if c.startswith('Designation_appt') or c == 'Designation'), None)
+            c_desig_basic = next((c for c in df_merged.columns if c.startswith('Designation_basic')), None)
+
+            def pick_best_desig(row):
+                val_a = str(row[c_desig_appt]).strip() if c_desig_appt and pd.notnull(row[c_desig_appt]) else ""
+                val_b = str(row[c_desig_basic]).strip() if c_desig_basic and pd.notnull(row[c_desig_basic]) else ""
+                if 'HEAD MASTER(GR_2)' in val_a.upper() or 'HEAD MASTER' in val_a.upper():
+                    return val_a
+                if 'HEAD MASTER(GR_2)' in val_b.upper() or 'HEAD MASTER' in val_b.upper():
+                    return val_b
+                return val_a if val_a and val_a != 'nan' else val_b
+
+            df_merged['Final_Designation'] = df_merged.apply(pick_best_desig, axis=1)
+
+            dob_col = next((c for c in df_merged.columns if 'DATEOFBIRTH' in c.upper() or 'DOB' in c.upper()), None)
+            if dob_col:
+                df_merged['Parsed_DOB'] = df_merged[dob_col].apply(parse_indian_date)
+                df_merged['Calculated_DOR'] = df_merged['Parsed_DOB'].apply(calc_superannuation_62)
+                df_merged['Calculated_DOR'] = pd.to_datetime(df_merged['Calculated_DOR'])
+                df_merged['Retirement_Year'] = df_merged['Calculated_DOR'].dt.year
+                df_merged['Retirement_Month'] = df_merged['Calculated_DOR'].dt.month
+            else:
+                df_merged['Parsed_DOB'] = None
+                df_merged['Calculated_DOR'] = pd.NaT
+                df_merged['Retirement_Year'] = np.nan
+                df_merged['Retirement_Month'] = np.nan
+
+            return df_merged
+
         else:
-            df_appt_clean = df_appt.drop_duplicates(subset=['Join_TID'], keep='last')
-
-        df_basic_clean = df_basic.drop_duplicates(subset=['Join_TID'], keep='first')
-
-        # 3. Merge
-        df_merged = pd.merge(
-            df_appt_clean, 
-            df_basic_clean, 
-            on='Join_TID', 
-            how='left', 
-            suffixes=('_appt', '_basic')
-        )
-
-        # 4. Final Designation Selection: Prefer HM if present anywhere
-        c_desig_appt = next((c for c in df_merged.columns if c.startswith('Designation_appt') or c == 'Designation'), None)
-        c_desig_basic = next((c for c in df_merged.columns if c.startswith('Designation_basic')), None)
-
-        def pick_best_desig(row):
-            val_a = str(row[c_desig_appt]).strip() if c_desig_appt and pd.notnull(row[c_desig_appt]) else ""
-            val_b = str(row[c_desig_basic]).strip() if c_desig_basic and pd.notnull(row[c_desig_basic]) else ""
+            # Single Sheet Workbook Format
+            df_single = pd.read_excel(actual_path)
+            df_single.columns = [" ".join(str(c).split()).strip() for c in df_single.columns]
             
-            if 'HEAD MASTER(GR_2)' in val_a.upper() or 'HEAD MASTER' in val_a.upper():
-                return val_a
-            if 'HEAD MASTER(GR_2)' in val_b.upper() or 'HEAD MASTER' in val_b.upper():
-                return val_b
-            return val_a if val_a and val_a != 'nan' else val_b
+            d_col = next((c for c in df_single.columns if 'DESIGNATION' in c.upper()), 'Designation')
+            df_single['Final_Designation'] = df_single[d_col]
+            
+            dob_col = next((c for c in df_single.columns if 'DATEOFBIRTH' in c.upper() or 'DOB' in c.upper()), None)
+            if dob_col:
+                df_single['Parsed_DOB'] = df_single[dob_col].apply(parse_indian_date)
+                df_single['Calculated_DOR'] = df_single['Parsed_DOB'].apply(calc_superannuation_62)
+                df_single['Calculated_DOR'] = pd.to_datetime(df_single['Calculated_DOR'])
+                df_single['Retirement_Year'] = df_single['Calculated_DOR'].dt.year
+                df_single['Retirement_Month'] = df_single['Calculated_DOR'].dt.month
+            return df_single
 
-        df_merged['Final_Designation'] = df_merged.apply(pick_best_desig, axis=1)
-
-        # 5. DOB Parsing across merged columns
-        dob_col = next((c for c in df_merged.columns if 'DATEOFBIRTH' in c.upper() or 'DOB' in c.upper()), None)
-        if dob_col:
-            df_merged['Parsed_DOB'] = df_merged[dob_col].apply(parse_indian_date)
-            df_merged['Calculated_DOR'] = df_merged['Parsed_DOB'].apply(calc_superannuation_62)
-            df_merged['Calculated_DOR'] = pd.to_datetime(df_merged['Calculated_DOR'])
-            df_merged['Retirement_Year'] = df_merged['Calculated_DOR'].dt.year
-            df_merged['Retirement_Month'] = df_merged['Calculated_DOR'].dt.month
-        else:
-            df_merged['Parsed_DOB'] = None
-            df_merged['Calculated_DOR'] = pd.NaT
-            df_merged['Retirement_Year'] = np.nan
-            df_merged['Retirement_Month'] = np.nan
-
-        return df_merged
     except Exception as e:
         st.error(f"Error reading TIS file: {e}")
         return None
@@ -1031,12 +1041,10 @@ with tab1:
 with tab2:
     st.subheader("🧑‍🏫 Teachers Directory & Retirement Tracker (TIS)")
     if df_tis is None:
-        st.warning(f"⚠️ '{TIS_FILE_PATH}' file load kaaledhu. File GitHub repo lo upload aindo ledho chudandi.")
+        st.warning(f"⚠️ '{TIS_FILE_PATH}' file inka upload kaledhu leda file dorakaledhu. Dayachesi GitHub repo lo kotha 'TIS DATA.xlsx' upload cheyandi.")
     else:
         t_tid = next((c for c in df_tis.columns if 'TREASURY' in c.upper()), 'TreasuryID')
         t_name = next((c for c in df_tis.columns if c.upper() in ['NAME', 'TEACHERNAME', 'NAME_APPT']), 'TeacherName')
-        
-        # Use Final_Designation prioritized for Gr II HM
         t_desig = 'Final_Designation' if 'Final_Designation' in df_tis.columns else next((c for c in df_tis.columns if 'DESIGNATION' in c.upper()), 'Designation')
         
         t_subj = next((c for c in df_tis.columns if 'SUBJECT' in c.upper()), 'Subject')
@@ -1053,7 +1061,6 @@ with tab2:
         df_tis_disp['DOB_Str'] = df_tis_disp['Parsed_DOB'].apply(lambda d: d.strftime('%d-%m-%Y') if d else 'N/A')
         df_tis_disp['DOR_Str'] = pd.to_datetime(df_tis_disp['Calculated_DOR'], errors='coerce').dt.strftime('%d-%m-%Y')
 
-        # Flexible Regex Matching for Cadres
         desig_series = df_tis_disp[t_desig].astype(str).str.upper()
 
         tot_teachers = len(df_tis_disp)
@@ -1074,7 +1081,6 @@ with tab2:
             "⏳ Retirement Tracker (Past & Future)"
         ])
 
-        # --- SUB-TAB 1: TEACHER 360 SEARCH ---
         with tis_t1:
             st.markdown("#### 🔍 Teacher 360° Search")
             st.caption("Search by Treasury ID, CFMS ID, Teacher Name, or School UDISE Code")
@@ -1119,7 +1125,6 @@ with tab2:
                 else:
                     st.warning("Ee details tho teacher record kanipinchaledhu.")
 
-        # --- SUB-TAB 2: SCHOOL-WISE STAFF DIRECTORY ---
         with tis_t2:
             st.markdown("#### 🏫 School-wise Staff Directory")
             all_tis_mandals = sorted([str(m).strip() for m in df_tis_disp[t_mandal].dropna().unique() if len(str(m).strip()) > 2])
@@ -1169,7 +1174,6 @@ with tab2:
                         subtitle=f"Mandal: {sel_tis_m} | Total Teachers: {len(sch_display)}"
                     )
 
-        # --- SUB-TAB 3: RETIREMENT TRACKER WITH DESIGNATION FIGURES & DATA ---
         with tis_t3:
             st.markdown("#### ⏳ Superannuation & Retirement Tracker (62 Years Rule)")
             st.caption("Auto-computed Superannuation dates as per AP State Government 62 Years Rule (DD-MM-YYYY) - Designation & Cadre Wise Analysis")
@@ -1261,7 +1265,6 @@ with tab2:
                     target_ret_df = valid_dor_df[valid_dor_df['Calculated_DOR'] < curr_date]
                 report_label = ret_preset_p.upper()
 
-            # --- 1. DESIGNATION-WISE RETIREMENT FIGURES (SUMMARY ABSTRACT) ---
             st.markdown("---")
             st.markdown(f"##### 📊 Cadre / Designation-wise Retirement Figures ({report_label})")
             
@@ -1289,7 +1292,6 @@ with tab2:
                     if sel_others > 0:
                         st.metric(f"Other Cadres 👥", f"{sel_others:,}")
 
-            # --- 2. FILTERS FOR DETAILED TEACHERS LIST (MANDAL & DESIGNATION) ---
             st.markdown("---")
             st.markdown(f"##### 👥 Detailed Retiring Teachers List ({report_label})")
             
@@ -1347,7 +1349,6 @@ with tab2:
                     subtitle=f"District: West Godavari | Mandal: {sel_m_ret} | Cadre: {sel_d_ret} | Total: {len(final_ret_table)}"
                 )
 
-            # --- 3. YEAR-WISE & CADRE CROSS CONSOLIDATION ABSTRACT ---
             st.markdown("---")
             st.markdown("##### 🏛️ Year-wise Cadre Breakdown Abstract (District Overview)")
             if not valid_dor_df.empty:
@@ -1730,6 +1731,3 @@ with tab3:
 # =========================================================
 with tab4:
     st.info("📄 CSE MIS Reports - Module Coming Soon")
-    # =========================================================
-# ------------------ TAB 4: MIS REPORTS -------------------
-# =========================================================
