@@ -24,7 +24,7 @@ TIS_FILE_PATH = "TIS DATA.xlsx"
 
 MANAGEMENT_MAPPING = {
     10: "10 - State Govt.",
-    24: "24 - APSWREI Society Schools",
+    24: "24 - APSWREI Society SchoolS",
     33: "33 - MPP_ZPP SCHOOLS",
     34: "34 - MUNCIPAL",
     35: "35 - Pvt.Aided",
