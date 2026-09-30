@@ -123,7 +123,7 @@ def render_print_button(dataframe, report_title="DEO REPORT", subtitle="West God
     </style>
     </head>
     <body style="margin: 0; padding: 0;">
-      <button class="p-btn" onclick="printReport()">🖨️ Direct Print / Save as PDF</button>
+      <button class="p-btn" onclick="printReport()">🖨️️ Direct Print / Save as PDF</button>
       <script>
       function printReport() {{
           var tableHtml = `{html_table_escaped}`;
@@ -357,7 +357,6 @@ def load_mbu_data():
         return None
 
 @st.cache_data(ttl=0)
-@st.cache_data(ttl=0)
 def load_tis_data():
     actual_path = find_file(TIS_FILE_PATH)
     if not actual_path:
@@ -377,13 +376,11 @@ def load_tis_data():
             df_appt.columns = [" ".join(str(c).split()).strip() for c in df_appt.columns]
             
             # --- STRICT FILTER: NEW DistrictName == WEST GODAVARI ONLY ---
-            # Mundu NEW DistrictName column kosam vethukuthundi
             new_dist_col = next((c for c in df_appt.columns if 'NEW' in c.upper() and 'DIST' in c.upper()), None)
             if not new_dist_col:
                 new_dist_col = next((c for c in df_appt.columns if 'DISTRICT' in c.upper() and 'OLD' not in c.upper()), None)
                 
             if new_dist_col:
-                # Eluru, East Godavari raakunda exact gaa 'WEST GODAVARI' matrame filter chesthundi
                 clean_dist = df_appt[new_dist_col].astype(str).str.strip().str.upper()
                 df_appt = df_appt[clean_dist == 'WEST GODAVARI']
 
@@ -450,7 +447,6 @@ def load_tis_data():
             df_single = pd.read_excel(actual_path)
             df_single.columns = [" ".join(str(c).split()).strip() for c in df_single.columns]
             
-            # Single sheet aithe kuda strict filter
             new_dist_col = next((c for c in df_single.columns if 'NEW' in c.upper() and 'DIST' in c.upper()), None)
             if not new_dist_col:
                 new_dist_col = next((c for c in df_single.columns if 'DISTRICT' in c.upper() and 'OLD' not in c.upper()), None)
@@ -473,6 +469,7 @@ def load_tis_data():
     except Exception as e:
         st.error(f"Error reading TIS file: {e}")
         return None
+
 # Load Datasets
 df = load_udise_data()
 df_cadre = load_cadre_data()
@@ -1120,7 +1117,7 @@ with tab2:
                                     st.markdown(f"**CFMS ID:** `{t_row[t_cfms]}`")
                                 st.markdown(f"**Gender:** {t_row.get(t_gender, 'N/A')}")
                                 st.markdown(f"**Date of Birth:** {t_row['DOB_Str']}")
-                                st.markdown(f"**Superannuation (DOR):** 🗓️ **{t_row['DOR_Str']}**")
+                                st.markdown(f"**Superannuation (DOR):** 🗓 **{t_row['DOR_Str']}**")
                             with col_p2:
                                 st.markdown(f"**Designation:** {t_row[t_desig]}")
                                 st.markdown(f"**Subject:** {t_row.get(t_subj, 'General')}")
@@ -1197,7 +1194,7 @@ with tab2:
             future_total_cnt = len(valid_dor_df[valid_dor_df['Calculated_DOR'] >= curr_date])
 
             r_m1, r_m2, r_m3, r_m4 = st.columns(4)
-            r_m1.metric("Already Retired (Past) 🏛️", f"{past_retired_cnt:,}")
+            r_m1.metric("Already Retired (Past) 🏛", f"{past_retired_cnt:,}")
             r_m2.metric("Retiring in 1 Year 📅", f"{len(ret_1y):,}")
             r_m3.metric("Retiring in 2 Years 🗓️", f"{len(ret_2y):,}")
             r_m4.metric("Total Future Retirements 📊", f"{future_total_cnt:,}")
@@ -1549,8 +1546,8 @@ with tab3:
                 dv_1, dv_2, dv_3, dv_4 = st.columns(4)
                 dv_1.metric("District Total Vacancies ⚠️", f"{tot_dist_vac:,}")
                 dv_2.metric("Gr II HM Vacancies 🏫", f"{tot_hm_vac:,}")
-                dv_3.metric("School Assistant (SA) Vacancies 📚", f"{tot_sa_vac:,}")
-                dv_4.metric("SGT Vacancies ✏️", f"{tot_sgt_vac:,}")
+                dv_3.metric("School Assistant (SA) Vacancies 📚", f"{tot_sa:,}")
+                dv_4.metric("SGT Vacancies ✏️️", f"{tot_sgt_vac:,}")
                 st.markdown("---")
 
                 all_mandals = sorted(mandal_cadre_vac['Mandal'].dropna().unique())
@@ -1636,10 +1633,22 @@ with tab3:
                 st.markdown("---")
 
                 mandal_list_all = sorted(list(df_cadre_work[c_mandal].dropna().unique()))
-                selected_mandal = st.selectbox("Select Mandal to view detailed Cadre breakdown:", mandal_list_all, key="mandal_cadre_detailed_select")
+                mandal_options = ["ALL MANDALS (District Total)"] + mandal_list_all
+                selected_mandal = st.selectbox(
+                    "Select Mandal to view detailed Cadre breakdown:", 
+                    mandal_options, 
+                    key="mandal_cadre_detailed_select"
+                )
 
-                m_df = df_cadre_work[df_cadre_work[c_mandal] == selected_mandal]
-                
+                if selected_mandal == "ALL MANDALS (District Total)":
+                    m_df = df_cadre_work
+                    report_title_str = "WEST GODAVARI DISTRICT (ALL MANDALS)"
+                    file_name_prefix = "District_Total"
+                else:
+                    m_df = df_cadre_work[df_cadre_work[c_mandal] == selected_mandal]
+                    report_title_str = f"{selected_mandal} MANDAL"
+                    file_name_prefix = str(selected_mandal)
+
                 cadre_breakdown = []
                 for idx, sc in enumerate(sanc_cols):
                     p_name = normalize_cadre_name(sc)
@@ -1666,9 +1675,9 @@ with tab3:
                 if cadre_breakdown:
                     cb_df = pd.DataFrame(cadre_breakdown)
                     cm1, cm2, cm3 = st.columns(3)
-                    cm1.metric(f"Total Sanctioned ({selected_mandal})", cb_df["Sanctioned Posts"].sum())
-                    cm2.metric(f"Total Working ({selected_mandal})", cb_df["Working Staff"].sum())
-                    cm3.metric(f"Total Vacant ({selected_mandal})", cb_df["Vacant Posts"].sum())
+                    cm1.metric(f"Total Sanctioned ({report_title_str})", f"{cb_df['Sanctioned Posts'].sum():,}")
+                    cm2.metric(f"Total Working ({report_title_str})", f"{cb_df['Working Staff'].sum():,}")
+                    cm3.metric(f"Total Vacant ({report_title_str})", f"{cb_df['Vacant Posts'].sum():,}")
 
                     cb_df_with_total = append_total_row(cb_df, label_col="Cadre / Designation", total_label="TOTAL")
                     st.dataframe(cb_df_with_total, use_container_width=True, hide_index=True)
@@ -1677,15 +1686,19 @@ with tab3:
                     with col_mb1:
                         s_buf = io.BytesIO()
                         with pd.ExcelWriter(s_buf, engine='openpyxl') as writer:
-                            cb_df_with_total.to_excel(writer, index=False, sheet_name=str(selected_mandal)[:31])
+                            cb_df_with_total.to_excel(writer, index=False, sheet_name=file_name_prefix[:31])
                         st.download_button(
-                            f"📥 Download {selected_mandal} Cadre Report (Excel)", 
+                            f"📥 Download {report_title_str} Cadre Report (Excel)", 
                             data=s_buf.getvalue(), 
-                            file_name=f"{selected_mandal}_Cadre_Breakdown.xlsx",
+                            file_name=f"{file_name_prefix}_Cadre_Breakdown.xlsx",
                             use_container_width=True
                         )
                     with col_mb2:
-                        render_print_button(cb_df_with_total, report_title=f"{selected_mandal} MANDAL - CADRE STRENGTH & VACANCY", subtitle="Sanctioned vs Working vs Vacant")
+                        render_print_button(
+                            cb_df_with_total, 
+                            report_title=f"{report_title_str} - CADRE STRENGTH & VACANCY", 
+                            subtitle="Sanctioned vs Working vs Vacant"
+                        )
 
                 st.markdown("---")
                 st.markdown("##### 🌐 Full District: Mandal-wise & Cadre-wise Master Table")
