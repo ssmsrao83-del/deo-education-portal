@@ -123,7 +123,7 @@ def render_print_button(dataframe, report_title="DEO REPORT", subtitle="West God
     </style>
     </head>
     <body style="margin: 0; padding: 0;">
-      <button class="p-btn" onclick="printReport()">🖨️️ Direct Print / Save as PDF</button>
+      <button class="p-btn" onclick="printReport()">🖨️ Direct Print / Save as PDF</button>
       <script>
       function printReport() {{
           var tableHtml = `{html_table_escaped}`;
@@ -695,13 +695,13 @@ with tab1:
 
                     ai_s = int(piv_s.loc[m_name, 'AIDED']) if 'AIDED' in piv_s.columns and m_name in piv_s.index else 0
                     ai_b = int(piv_b.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_b.index else 0
-                    ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_b.index else 0
+                    ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_g.columns and m_name in piv_b.index else 0
                     ai_r = int(piv_r.loc[m_name, 'AIDED']) if 'AIDED' in piv_r.columns and m_name in piv_s.index else 0
 
                     pr_s = int(piv_s.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_s.columns and m_name in piv_s.index else 0
                     pr_b = int(piv_b.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_b.index else 0
                     pr_g = int(piv_g.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_b.index else 0
-                    pr_r = int(piv_r.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_b.index else 0
+                    pr_r = int(piv_r.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_r.columns and m_name in piv_b.index else 0
 
                     records.append({
                         "Mandal (Block)": m_name,
@@ -1224,7 +1224,7 @@ with tab2:
                 
                 with col_sel_m:
                     month_options = ["All Months"] + MONTH_NAMES
-                    default_m_idx = curr_date.month if selected_year == curr_date.year else 0
+                    default_m_idx = 0
                     selected_month_str = st.selectbox("Select Retirement Month:", month_options, index=default_m_idx)
 
                 if selected_month_str == "All Months":
@@ -1276,6 +1276,17 @@ with tab2:
             st.markdown(f"##### 📊 Cadre / Designation-wise Retirement Figures ({report_label})")
             
             if not target_ret_df.empty:
+                def get_broad_cadre(val):
+                    vu = str(val).upper()
+                    if 'HEAD MASTER' in vu or 'HM' in vu or 'HEADMASTER' in vu:
+                        return 'Gr II HM'
+                    elif 'SCHOOL ASST' in vu or 'SA ' in vu or 'SCHOOL ASSISTANT' in vu or 'PSHM' in vu:
+                        return 'School Assistant'
+                    elif 'SECONDARY GRADE' in vu or 'SGT' in vu:
+                        return 'SGT'
+                    return 'Other Cadres'
+
+                # Table group by Exact Designation
                 desig_summary = target_ret_df.groupby(t_desig).agg(
                     Total_Retirements=(t_tid, 'count')
                 ).reset_index().rename(columns={t_desig: 'Cadre / Designation'})
@@ -1287,11 +1298,11 @@ with tab2:
                 with col_d_tbl:
                     st.dataframe(desig_summary_total, use_container_width=True, hide_index=True)
                 with col_d_chart:
-                    tot_sel = len(target_ret_df)
-                    sel_hms = int(target_ret_df[t_desig].astype(str).str.upper().str.contains(r'HM|HEAD\s*MASTER').sum())
-                    sel_sas = int(target_ret_df[t_desig].astype(str).str.upper().str.contains(r'\bSA\b|SCHOOL\s*ASST').sum())
-                    sel_sgts = int(target_ret_df[t_desig].astype(str).str.upper().str.contains(r'\bSGT\b|SECONDARY\s*GRADE').sum())
-                    sel_others = tot_sel - (sel_hms + sel_sas + sel_sgts)
+                    temp_counts = target_ret_df[t_desig].apply(get_broad_cadre)
+                    sel_hms = int((temp_counts == 'Gr II HM').sum())
+                    sel_sas = int((temp_counts == 'School Assistant').sum())
+                    sel_sgts = int((temp_counts == 'SGT').sum())
+                    sel_others = int((temp_counts == 'Other Cadres').sum())
                     
                     st.metric(f"Gr II HMs Retiring 🏫", f"{sel_hms:,}")
                     st.metric(f"School Assistants (SA) 📚", f"{sel_sas:,}")
@@ -1359,16 +1370,6 @@ with tab2:
             st.markdown("---")
             st.markdown("##### 🏛️ Year-wise Cadre Breakdown Abstract (District Overview)")
             if not valid_dor_df.empty:
-                def get_broad_cadre(val):
-                    vu = str(val).upper()
-                    if 'HEAD MASTER' in vu or 'HM' in vu or 'HEADMASTER' in vu:
-                        return 'Gr II HM'
-                    elif 'SCHOOL ASST' in vu or 'SA ' in vu or 'SCHOOL ASSISTANT' in vu:
-                        return 'School Assistant'
-                    elif 'SECONDARY GRADE' in vu or 'SGT' in vu:
-                        return 'SGT'
-                    return 'Other Cadres'
-
                 summary_df = valid_dor_df.copy()
                 summary_df['Broad_Cadre'] = summary_df[t_desig].apply(get_broad_cadre)
                 
@@ -1547,7 +1548,7 @@ with tab3:
                 dv_1.metric("District Total Vacancies ⚠️", f"{tot_dist_vac:,}")
                 dv_2.metric("Gr II HM Vacancies 🏫", f"{tot_hm_vac:,}")
                 dv_3.metric("School Assistant (SA) Vacancies 📚", f"{tot_sa:,}")
-                dv_4.metric("SGT Vacancies ✏️️", f"{tot_sgt_vac:,}")
+                dv_4.metric("SGT Vacancies ✏️", f"{tot_sgt_vac:,}")
                 st.markdown("---")
 
                 all_mandals = sorted(mandal_cadre_vac['Mandal'].dropna().unique())
@@ -1658,7 +1659,7 @@ with tab3:
                     if not wc or p_name.lower() not in normalize_cadre_name(wc).lower():
                         wc = next((c for c in work_cols if p_name.lower() == normalize_cadre_name(c).lower()), wc)
                     if not vc or p_name.lower() not in normalize_cadre_name(vc).lower():
-                        vc = next((c for c in vac_cols if p_name.lower() == normalize_cadre_name(vc).lower()), vc)
+                        vc = next((c for c in vac_cols if p_name.lower() == normalize_cadre_name(c).lower()), vc)
 
                     s_sum = int(m_df[sc].sum()) if sc in m_df.columns else 0
                     w_sum = int(m_df[wc].sum()) if wc and wc in m_df.columns else 0
@@ -1713,7 +1714,7 @@ with tab3:
                         if not wc or p_name.lower() not in normalize_cadre_name(wc).lower():
                             wc = next((c for c in work_cols if p_name.lower() == normalize_cadre_name(c).lower()), wc)
                         if not vc or p_name.lower() not in normalize_cadre_name(vc).lower():
-                            vc = next((c for c in vac_cols if p_name.lower() == normalize_cadre_name(vc).lower()), vc)
+                            vc = next((c for c in vac_cols if p_name.lower() == normalize_cadre_name(c).lower()), vc)
 
                         s_val = int(sub_m[sc].sum()) if sc in sub_m.columns else 0
                         w_val = int(sub_m[wc].sum()) if wc and wc in sub_m.columns else 0
