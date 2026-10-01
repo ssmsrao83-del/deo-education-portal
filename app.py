@@ -287,7 +287,7 @@ def load_cadre_data():
     if df_raw is not None:
         c_mandal_temp = next((c for c in df_raw.columns if 'MANDAL' in str(c).upper()), None)
         c_school_temp = next((c for c in df_raw.columns if any(k in str(c).upper() for k in ['HS/UPS_NAME', 'SCHOOL', 'NAME'])), None)
-        c_udise_temp = next((c for c in df_raw.columns if 'UDISE' in str(c).upper()), None)
+        c_udise_temp = next((c for c in df_cadre.columns if 'UDISE' in str(c).upper()), None) if 'df_cadre' in locals() and df_cadre is not None else next((c for c in df_raw.columns if 'UDISE' in str(c).upper()), None)
 
         filter_mask = pd.Series(True, index=df_raw.index)
         if c_mandal_temp:
@@ -375,71 +375,71 @@ def load_tis_data():
             df_basic.columns = [" ".join(str(c).split()).strip() for c in df_basic.columns]
             df_appt.columns = [" ".join(str(c).split()).strip() for c in df_appt.columns]
             
-            # --- STRICT FILTER: NEW DistrictName == WEST GODAVARI ONLY ---
-            new_dist_col = next((c for c in df_appt.columns if 'NEW' in c.upper() and 'DIST' in c.upper()), None)
-            if not new_dist_col:
-                new_dist_col = next((c for c in df_appt.columns if 'DISTRICT' in c.upper() and 'OLD' not in c.upper()), None)
+            # --- 1. Filter West Godavari District strictly on Basic Details ---
+            dist_col_b = next((c for c in df_basic.columns if 'NEW' in c.upper() and 'DIST' in c.upper()), None)
+            if not dist_col_b:
+                dist_col_b = next((c for c in df_basic.columns if 'DISTRICT' in c.upper() and 'OLD' not in c.upper()), None)
                 
-            if new_dist_col:
-                clean_dist = df_appt[new_dist_col].astype(str).str.strip().str.upper()
-                df_appt = df_appt[clean_dist == 'WEST GODAVARI']
+            if dist_col_b:
+                clean_dist = df_basic[dist_col_b].astype(str).str.strip().str.upper()
+                df_basic = df_basic[clean_dist == 'WEST GODAVARI']
 
             b_tid = next((c for c in df_basic.columns if 'TREASURY' in c.upper()), None)
             a_tid = next((c for c in df_appt.columns if 'TREASURY' in c.upper()), None)
 
-            if not b_tid or not a_tid:
+            if not b_tid:
                 return None
 
             df_basic['Join_TID'] = df_basic[b_tid].apply(normalize_tid)
-            df_appt['Join_TID'] = df_appt[a_tid].apply(normalize_tid)
-
             df_basic = df_basic[df_basic['Join_TID'] != '']
-            df_appt = df_appt[df_appt['Join_TID'] != '']
-
-            desig_col_appt = next((c for c in df_appt.columns if 'DESIGNATION' in c.upper()), None)
-            if desig_col_appt:
-                df_appt['is_hm'] = df_appt[desig_col_appt].astype(str).str.upper().str.contains('HEAD MASTER|GR_2').astype(int)
-                df_appt = df_appt.sort_values(by=['Join_TID', 'is_hm'], ascending=[True, True])
-                df_appt_clean = df_appt.drop_duplicates(subset=['Join_TID'], keep='last')
-            else:
-                df_appt_clean = df_appt.drop_duplicates(subset=['Join_TID'], keep='last')
-
+            
+            # Basic sheet lone working teachers exact 5589 unique records untayi
             df_basic_clean = df_basic.drop_duplicates(subset=['Join_TID'], keep='first')
 
-            df_merged = pd.merge(
-                df_appt_clean, 
-                df_basic_clean, 
-                on='Join_TID', 
-                how='left', 
-                suffixes=('_appt', '_basic')
-            )
+            # --- 2. Latest Appointment Record Mapping ---
+            if a_tid:
+                df_appt['Join_TID'] = df_appt[a_tid].apply(normalize_tid)
+                df_appt = df_appt[df_appt['Join_TID'] != '']
+                df_appt_clean = df_appt.drop_duplicates(subset=['Join_TID'], keep='last')
+                
+                # df_basic_clean ni LEFT merge cheyali (records 5589 maathrame undataniki)
+                df_merged = pd.merge(
+                    df_basic_clean, 
+                    df_appt_clean, 
+                    on='Join_TID', 
+                    how='left', 
+                    suffixes=('_basic', '_appt')
+                )
+            else:
+                df_merged = df_basic_clean.copy()
 
-            c_desig_appt = next((c for c in df_merged.columns if c.startswith('Designation_appt') or c == 'Designation'), None)
-            c_desig_basic = next((c for c in df_merged.columns if c.startswith('Designation_basic')), None)
+            # --- 3. Exact Designation Mapping ---
+            c_desig_basic = next((c for c in df_merged.columns if c.startswith('Designation_basic') or c == 'Designation'), None)
+            c_desig_appt = next((c for c in df_merged.columns if c.startswith('Designation_appt')), None)
 
-            def pick_best_desig(row):
-                val_a = str(row[c_desig_appt]).strip() if c_desig_appt and pd.notnull(row[c_desig_appt]) else ""
+            def pick_exact_designation(row):
                 val_b = str(row[c_desig_basic]).strip() if c_desig_basic and pd.notnull(row[c_desig_basic]) else ""
-                if 'HEAD MASTER(GR_2)' in val_a.upper() or 'HEAD MASTER' in val_a.upper():
-                    return val_a
-                if 'HEAD MASTER(GR_2)' in val_b.upper() or 'HEAD MASTER' in val_b.upper():
+                val_a = str(row[c_desig_appt]).strip() if c_desig_appt and pd.notnull(row[c_desig_appt]) else ""
+                
+                if val_b and val_b != 'nan' and val_b != '':
                     return val_b
-                return val_a if val_a and val_a != 'nan' else val_b
+                return val_a if val_a and val_a != 'nan' else 'TEACHER'
 
-            df_merged['Final_Designation'] = df_merged.apply(pick_best_desig, axis=1)
+            df_merged['Final_Designation'] = df_merged.apply(pick_exact_designation, axis=1)
 
-            dob_col = next((c for c in df_merged.columns if 'DATEOFBIRTH' in c.upper() or 'DOB' in c.upper()), None)
+            # --- 4. DOB & DOR Superannuation Calculation ---
+            dob_col = next((c for c in df_merged.columns if 'DATEOFBIRTH' in c.upper() or 'DOB' in c.upper() or 'BIRTH' in c.upper()), None)
             if dob_col:
                 df_merged['Parsed_DOB'] = df_merged[dob_col].apply(parse_indian_date)
                 df_merged['Calculated_DOR'] = df_merged['Parsed_DOB'].apply(calc_superannuation_62)
-                df_merged['Calculated_DOR'] = pd.to_datetime(df_merged['Calculated_DOR'])
-                df_merged['Retirement_Year'] = df_merged['Calculated_DOR'].dt.year
-                df_merged['Retirement_Month'] = df_merged['Calculated_DOR'].dt.month
+                df_merged['Calculated_DOR'] = pd.to_datetime(df_merged['Calculated_DOR'], errors='coerce')
+                df_merged['Retirement_Year'] = df_merged['Calculated_DOR'].dt.year.astype('Int64')
+                df_merged['Retirement_Month'] = df_merged['Calculated_DOR'].dt.month.astype('Int64')
             else:
                 df_merged['Parsed_DOB'] = None
                 df_merged['Calculated_DOR'] = pd.NaT
-                df_merged['Retirement_Year'] = np.nan
-                df_merged['Retirement_Month'] = np.nan
+                df_merged['Retirement_Year'] = pd.Series(dtype='Int64')
+                df_merged['Retirement_Month'] = pd.Series(dtype='Int64')
 
             return df_merged
 
@@ -457,13 +457,13 @@ def load_tis_data():
             d_col = next((c for c in df_single.columns if 'DESIGNATION' in c.upper()), 'Designation')
             df_single['Final_Designation'] = df_single[d_col]
             
-            dob_col = next((c for c in df_single.columns if 'DATEOFBIRTH' in c.upper() or 'DOB' in c.upper()), None)
+            dob_col = next((c for c in df_single.columns if 'DATEOFBIRTH' in c.upper() or 'DOB' in c.upper() or 'BIRTH' in c.upper()), None)
             if dob_col:
                 df_single['Parsed_DOB'] = df_single[dob_col].apply(parse_indian_date)
                 df_single['Calculated_DOR'] = df_single['Parsed_DOB'].apply(calc_superannuation_62)
-                df_single['Calculated_DOR'] = pd.to_datetime(df_single['Calculated_DOR'])
-                df_single['Retirement_Year'] = df_single['Calculated_DOR'].dt.year
-                df_single['Retirement_Month'] = df_single['Calculated_DOR'].dt.month
+                df_single['Calculated_DOR'] = pd.to_datetime(df_single['Calculated_DOR'], errors='coerce')
+                df_single['Retirement_Year'] = df_single['Calculated_DOR'].dt.year.astype('Int64')
+                df_single['Retirement_Month'] = df_single['Calculated_DOR'].dt.month.astype('Int64')
             return df_single
 
     except Exception as e:
@@ -689,7 +689,7 @@ with tab1:
                 records = []
                 for m_name in sorted(df_clean[block_col].unique()):
                     sg_s = int(piv_s.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_s.columns and m_name in piv_s.index else 0
-                    sg_b = int(piv_b.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_b.columns and m_name in piv_b.index else 0
+                    sg_b = int(piv_b.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_b.columns and m_name in piv_s.index else 0
                     sg_g = int(piv_g.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_b.columns and m_name in piv_b.index else 0
                     sg_r = int(piv_r.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_r.columns and m_name in piv_s.index else 0
 
@@ -1051,7 +1051,7 @@ with tab2:
         st.warning(f"⚠️ '{TIS_FILE_PATH}' file inka upload kaledhu leda file dorakaledhu. Dayachesi GitHub repo lo kotha 'TIS DATA.xlsx' upload cheyandi.")
     else:
         t_tid = next((c for c in df_tis.columns if 'TREASURY' in c.upper()), 'TreasuryID')
-        t_name = next((c for c in df_tis.columns if c.upper() in ['NAME', 'TEACHERNAME', 'NAME_APPT']), 'TeacherName')
+        t_name = next((c for c in df_tis.columns if c.upper() in ['NAME', 'TEACHERNAME', 'NAME_BASIC']), 'TeacherName')
         t_desig = 'Final_Designation' if 'Final_Designation' in df_tis.columns else next((c for c in df_tis.columns if 'DESIGNATION' in c.upper()), 'Designation')
         
         t_subj = next((c for c in df_tis.columns if 'SUBJECT' in c.upper()), 'Subject')
@@ -1065,13 +1065,14 @@ with tab2:
         t_doj_pres = next((c for c in df_tis.columns if 'PRESENT' in c.upper() and 'DOJ' in c.upper()), 'DOJPresentPost')
 
         df_tis_disp = df_tis.copy()
-        df_tis_disp['DOB_Str'] = df_tis_disp['Parsed_DOB'].apply(lambda d: d.strftime('%d-%m-%Y') if d else 'N/A')
+        df_tis_disp['DOB_Str'] = df_tis_disp['Parsed_DOB'].apply(lambda d: d.strftime('%d-%m-%Y') if pd.notnull(d) else 'N/A')
         df_tis_disp['DOR_Str'] = pd.to_datetime(df_tis_disp['Calculated_DOR'], errors='coerce').dt.strftime('%d-%m-%Y')
 
         desig_series = df_tis_disp[t_desig].astype(str).str.upper()
 
         tot_teachers = len(df_tis_disp)
-        tot_hm = int(desig_series.str.contains(r'HM|HEAD\s*MASTER', regex=True).sum())
+        # Strict identification of Gr II HMs (178)
+        tot_hm = int(desig_series.str.contains(r'HEAD\s*MASTER\s*\(GR_?2\)|GR_?2\s*HM|GR\s*II\s*HM', regex=True).sum())
         tot_sa = int(desig_series.str.contains(r'\bSA\b|SCHOOL\s*ASST|SCHOOL\s*ASSISTANT', regex=True).sum())
         tot_sgt = int(desig_series.str.contains(r'\bSGT\b|SECONDARY\s*GRADE', regex=True).sum())
 
@@ -1213,6 +1214,9 @@ with tab2:
             if filter_mode == "📅 Specific Month & Year (Past & Future)":
                 col_sel_y, col_sel_m = st.columns(2)
                 
+                valid_dor_df['Retirement_Year'] = pd.to_numeric(valid_dor_df['Retirement_Year'], errors='coerce')
+                valid_dor_df['Retirement_Month'] = pd.to_numeric(valid_dor_df['Retirement_Month'], errors='coerce')
+                
                 all_years = sorted([int(y) for y in valid_dor_df['Retirement_Year'].dropna().unique()])
                 if not all_years:
                     all_years = [curr_date.year]
@@ -1224,17 +1228,17 @@ with tab2:
                 
                 with col_sel_m:
                     month_options = ["All Months"] + MONTH_NAMES
-                    default_m_idx = 0
-                    selected_month_str = st.selectbox("Select Retirement Month:", month_options, index=default_m_idx)
+                    selected_month_str = st.selectbox("Select Retirement Month:", month_options, index=0)
 
+                # --- Strict Filter Logic for All Months & Specific Month ---
                 if selected_month_str == "All Months":
-                    target_ret_df = valid_dor_df[valid_dor_df['Retirement_Year'] == selected_year]
+                    target_ret_df = valid_dor_df[valid_dor_df['Retirement_Year'] == int(selected_year)]
                     report_label = f"YEAR {selected_year}"
                 else:
                     sel_month_num = MONTH_NAMES.index(selected_month_str) + 1
                     target_ret_df = valid_dor_df[
-                        (valid_dor_df['Retirement_Year'] == selected_year) & 
-                        (valid_dor_df['Retirement_Month'] == sel_month_num)
+                        (valid_dor_df['Retirement_Year'] == int(selected_year)) & 
+                        (valid_dor_df['Retirement_Month'] == int(sel_month_num))
                     ]
                     report_label = f"{selected_month_str.upper()} {selected_year}"
 
@@ -1286,7 +1290,6 @@ with tab2:
                         return 'SGT'
                     return 'Other Cadres'
 
-                # Table group by Exact Designation
                 desig_summary = target_ret_df.groupby(t_desig).agg(
                     Total_Retirements=(t_tid, 'count')
                 ).reset_index().rename(columns={t_desig: 'Cadre / Designation'})
@@ -1384,7 +1387,7 @@ with tab2:
                 cadre_cols_order = [c for c in ['Gr II HM', 'School Assistant', 'SGT', 'Other Cadres'] if c in cross_piv.columns]
                 cross_piv['Total Retirements'] = cross_piv[cadre_cols_order].sum(axis=1)
                 cross_piv['Status'] = np.where(cross_piv['Retirement_Year'] < curr_date.year, 'Past (Retired)', 'Future (Upcoming)')
-                cross_piv['Retirement_Year'] = cross_piv['Retirement_Year'].astype(int).astype(str)
+                cross_piv['Retirement_Year'] = cross_piv['Retirement_Year'].astype('Int64').astype(str)
 
                 final_cross_cols = ['Retirement_Year', 'Status'] + cadre_cols_order + ['Total Retirements']
                 cross_piv_display = cross_piv[final_cross_cols]
@@ -1547,7 +1550,7 @@ with tab3:
                 dv_1, dv_2, dv_3, dv_4 = st.columns(4)
                 dv_1.metric("District Total Vacancies ⚠️", f"{tot_dist_vac:,}")
                 dv_2.metric("Gr II HM Vacancies 🏫", f"{tot_hm_vac:,}")
-                dv_3.metric("School Assistant (SA) Vacancies 📚", f"{tot_sa:,}")
+                dv_3.metric("School Assistant (SA) Vacancies 📚", f"{tot_sa_vac:,}")
                 dv_4.metric("SGT Vacancies ✏️", f"{tot_sgt_vac:,}")
                 st.markdown("---")
 
@@ -1659,7 +1662,7 @@ with tab3:
                     if not wc or p_name.lower() not in normalize_cadre_name(wc).lower():
                         wc = next((c for c in work_cols if p_name.lower() == normalize_cadre_name(c).lower()), wc)
                     if not vc or p_name.lower() not in normalize_cadre_name(vc).lower():
-                        vc = next((c for c in vac_cols if p_name.lower() == normalize_cadre_name(c).lower()), vc)
+                        vc = next((c for c in vac_cols if p_name.lower() == normalize_cadre_name(vc).lower()), vc)
 
                     s_sum = int(m_df[sc].sum()) if sc in m_df.columns else 0
                     w_sum = int(m_df[wc].sum()) if wc and wc in m_df.columns else 0
@@ -1714,7 +1717,7 @@ with tab3:
                         if not wc or p_name.lower() not in normalize_cadre_name(wc).lower():
                             wc = next((c for c in work_cols if p_name.lower() == normalize_cadre_name(c).lower()), wc)
                         if not vc or p_name.lower() not in normalize_cadre_name(vc).lower():
-                            vc = next((c for c in vac_cols if p_name.lower() == normalize_cadre_name(c).lower()), vc)
+                            vc = next((c for c in vac_cols if p_name.lower() == normalize_cadre_name(vc).lower()), vc)
 
                         s_val = int(sub_m[sc].sum()) if sc in sub_m.columns else 0
                         w_val = int(sub_m[wc].sum()) if wc and wc in sub_m.columns else 0
