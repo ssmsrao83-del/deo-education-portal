@@ -356,7 +356,118 @@ def load_mbu_data():
         st.error(f"Error reading MBU file: {e}")
         return None
 
-load_tis_data
+@st.cache_data(ttl=0)
+def load_tis_data():
+    actual_path = find_file(TIS_FILE_PATH)
+    if not actual_path:
+        return None
+    try:
+        xls = pd.ExcelFile(actual_path)
+        sheet_names = xls.sheet_names
+        
+        b_sheet = next((s for s in sheet_names if 'BASIC' in s.upper()), None)
+        a_sheet = next((s for s in sheet_names if 'APPOINT' in s.upper()), None)
+        
+        if b_sheet and a_sheet:
+            df_basic = pd.read_excel(actual_path, sheet_name=b_sheet)
+            df_appt = pd.read_excel(actual_path, sheet_name=a_sheet)
+            
+            df_basic.columns = [" ".join(str(c).split()).strip() for c in df_basic.columns]
+            df_appt.columns = [" ".join(str(c).split()).strip() for c in df_appt.columns]
+            
+            new_dist_col = next((c for c in df_appt.columns if 'NEW' in c.upper() and 'DIST' in c.upper()), None)
+            if not new_dist_col:
+                new_dist_col = next((c for c in df_appt.columns if 'DISTRICT' in c.upper() and 'OLD' not in c.upper()), None)
+                
+            if new_dist_col:
+                clean_dist = df_appt[new_dist_col].astype(str).str.strip().str.upper()
+                df_appt = df_appt[clean_dist == 'WEST GODAVARI']
+
+            b_tid = next((c for c in df_basic.columns if 'TREASURY' in c.upper()), None)
+            a_tid = next((c for c in df_appt.columns if 'TREASURY' in c.upper()), None)
+
+            if not b_tid or not a_tid:
+                return None
+
+            df_basic['Join_TID'] = df_basic[b_tid].apply(normalize_tid)
+            df_appt['Join_TID'] = df_appt[a_tid].apply(normalize_tid)
+
+            df_basic = df_basic[df_basic['Join_TID'] != '']
+            df_appt = df_appt[df_appt['Join_TID'] != '']
+
+            desig_col_appt = next((c for c in df_appt.columns if 'DESIGNATION' in c.upper()), None)
+            if desig_col_appt:
+                df_appt['is_hm'] = df_appt[desig_col_appt].astype(str).str.upper().str.contains('HEAD MASTER|GR_2').astype(int)
+                df_appt = df_appt.sort_values(by=['Join_TID', 'is_hm'], ascending=[True, True])
+                df_appt_clean = df_appt.drop_duplicates(subset=['Join_TID'], keep='last')
+            else:
+                df_appt_clean = df_appt.drop_duplicates(subset=['Join_TID'], keep='last')
+
+            df_basic_clean = df_basic.drop_duplicates(subset=['Join_TID'], keep='first')
+
+            df_merged = pd.merge(
+                df_appt_clean, 
+                df_basic_clean, 
+                on='Join_TID', 
+                how='left', 
+                suffixes=('_appt', '_basic')
+            )
+
+            c_desig_appt = next((c for c in df_merged.columns if c.startswith('Designation_appt') or c == 'Designation'), None)
+            c_desig_basic = next((c for c in df_merged.columns if c.startswith('Designation_basic')), None)
+
+            def pick_best_desig(row):
+                val_a = str(row[c_desig_appt]).strip() if c_desig_appt and pd.notnull(row[c_desig_appt]) else ""
+                val_b = str(row[c_desig_basic]).strip() if c_desig_basic and pd.notnull(row[c_desig_basic]) else ""
+                if 'HEAD MASTER(GR_2)' in val_a.upper() or 'HEAD MASTER' in val_a.upper():
+                    return val_a
+                if 'HEAD MASTER(GR_2)' in val_b.upper() or 'HEAD MASTER' in val_b.upper():
+                    return val_b
+                return val_a if val_a and val_a != 'nan' else val_b
+
+            df_merged['Final_Designation'] = df_merged.apply(pick_best_desig, axis=1)
+
+            dob_col = next((c for c in df_merged.columns if 'DATEOFBIRTH' in c.upper() or 'DOB' in c.upper() or 'BIRTH' in c.upper()), None)
+            if dob_col:
+                df_merged['Parsed_DOB'] = df_merged[dob_col].apply(parse_indian_date)
+                df_merged['Calculated_DOR'] = df_merged['Parsed_DOB'].apply(calc_superannuation_62)
+                df_merged['Calculated_DOR'] = pd.to_datetime(df_merged['Calculated_DOR'], errors='coerce')
+                df_merged['Retirement_Year'] = df_merged['Calculated_DOR'].dt.year.astype('Int64')
+                df_merged['Retirement_Month'] = df_merged['Calculated_DOR'].dt.month.astype('Int64')
+            else:
+                df_merged['Parsed_DOB'] = None
+                df_merged['Calculated_DOR'] = pd.NaT
+                df_merged['Retirement_Year'] = pd.Series(dtype='Int64')
+                df_merged['Retirement_Month'] = pd.Series(dtype='Int64')
+
+            return df_merged
+
+        else:
+            df_single = pd.read_excel(actual_path)
+            df_single.columns = [" ".join(str(c).split()).strip() for c in df_single.columns]
+            
+            new_dist_col = next((c for c in df_single.columns if 'NEW' in c.upper() and 'DIST' in c.upper()), None)
+            if not new_dist_col:
+                new_dist_col = next((c for c in df_single.columns if 'DISTRICT' in c.upper() and 'OLD' not in c.upper()), None)
+            if new_dist_col:
+                clean_dist = df_single[new_dist_col].astype(str).str.strip().str.upper()
+                df_single = df_single[clean_dist == 'WEST GODAVARI']
+            
+            d_col = next((c for c in df_single.columns if 'DESIGNATION' in c.upper()), 'Designation')
+            df_single['Final_Designation'] = df_single[d_col]
+            
+            dob_col = next((c for c in df_single.columns if 'DATEOFBIRTH' in c.upper() or 'DOB' in c.upper() or 'BIRTH' in c.upper()), None)
+            if dob_col:
+                df_single['Parsed_DOB'] = df_single[dob_col].apply(parse_indian_date)
+                df_single['Calculated_DOR'] = df_single['Parsed_DOB'].apply(calc_superannuation_62)
+                df_single['Calculated_DOR'] = pd.to_datetime(df_single['Calculated_DOR'], errors='coerce')
+                df_single['Retirement_Year'] = df_single['Calculated_DOR'].dt.year.astype('Int64')
+                df_single['Retirement_Month'] = df_single['Calculated_DOR'].dt.month.astype('Int64')
+            return df_single
+
+    except Exception as e:
+        st.error(f"Error reading TIS file: {e}")
+        return None
 
 # Load Datasets
 df = load_udise_data()
@@ -366,7 +477,7 @@ df_tis = load_tis_data()
 
 tab1, tab2, tab3, tab4 = st.tabs([
     "🏫 School 360° & UDISE Reports",
-    "🧑‍🏫 Teachers Directory & Retirement",
+    "🧑‍‍🏫 Teachers Directory & Retirement",
     "📊 Cadre Strength & Vacancy",
     "📄 CSE MIS Reports"
 ])
@@ -577,19 +688,19 @@ with tab1:
                 records = []
                 for m_name in sorted(df_clean[block_col].unique()):
                     sg_s = int(piv_s.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_s.columns and m_name in piv_s.index else 0
-                    sg_b = int(piv_b.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_b.columns and m_name in piv_b.index else 0
-                    sg_g = int(piv_g.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_b.columns and m_name in piv_b.index else 0
+                    sg_b = int(piv_b.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_b.columns and m_name in piv_s.index else 0
+                    sg_g = int(piv_g.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_g.columns and m_name in piv_s.index else 0
                     sg_r = int(piv_r.loc[m_name, 'STATE GOVT']) if 'STATE GOVT' in piv_r.columns and m_name in piv_s.index else 0
 
                     ai_s = int(piv_s.loc[m_name, 'AIDED']) if 'AIDED' in piv_s.columns and m_name in piv_s.index else 0
-                    ai_b = int(piv_b.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_b.index else 0
-                    ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_g.columns and m_name in piv_b.index else 0
+                    ai_b = int(piv_b.loc[m_name, 'AIDED']) if 'AIDED' in piv_b.columns and m_name in piv_s.index else 0
+                    ai_g = int(piv_g.loc[m_name, 'AIDED']) if 'AIDED' in piv_g.columns and m_name in piv_s.index else 0
                     ai_r = int(piv_r.loc[m_name, 'AIDED']) if 'AIDED' in piv_r.columns and m_name in piv_s.index else 0
 
                     pr_s = int(piv_s.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_s.columns and m_name in piv_s.index else 0
-                    pr_b = int(piv_b.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_b.index else 0
-                    pr_g = int(piv_g.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_b.index else 0
-                    pr_r = int(piv_r.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_r.columns and m_name in piv_b.index else 0
+                    pr_b = int(piv_b.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_b.columns and m_name in piv_s.index else 0
+                    pr_g = int(piv_g.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_g.columns and m_name in piv_s.index else 0
+                    pr_r = int(piv_r.loc[m_name, 'PRIVATE']) if 'PRIVATE' in piv_r.columns and m_name in piv_s.index else 0
 
                     records.append({
                         "Mandal (Block)": m_name,
@@ -782,7 +893,7 @@ with tab1:
         with subtab4:
             st.subheader("⏳ Mandatory Biometric Update (MBU) Pending Analysis")
             if df_mbu is None:
-                st.warning(f"⚠️ '{MBU_FILE_PATH}' file GitHub lo load kaaledhu. File upload aindo ledho chudandi.")
+                st.warning(f"⚠️️ '{MBU_FILE_PATH}' file GitHub lo load kaaledhu. File upload aindo ledho chudandi.")
             else:
                 mbu_block_col = next((c for c in df_mbu.columns if 'BLOCK' in c.upper() or 'MANDAL' in c.upper()), None)
                 mbu_mgmt_col = 'Management_Display' if 'Management_Display' in df_mbu.columns else next((c for c in df_mbu.columns if 'MANAGE' in c.upper()), None)
@@ -953,7 +1064,7 @@ with tab2:
         t_doj_pres = next((c for c in df_tis.columns if 'PRESENT' in c.upper() and 'DOJ' in c.upper()), 'DOJPresentPost')
 
         df_tis_disp = df_tis.copy()
-        df_tis_disp['DOB_Str'] = df_tis_disp['Parsed_DOB'].apply(lambda d: d.strftime('%d-%m-%Y') if d else 'N/A')
+        df_tis_disp['DOB_Str'] = df_tis_disp['Parsed_DOB'].apply(lambda d: d.strftime('%d-%m-%Y') if pd.notnull(d) else 'N/A')
         df_tis_disp['DOR_Str'] = pd.to_datetime(df_tis_disp['Calculated_DOR'], errors='coerce').dt.strftime('%d-%m-%Y')
 
         desig_series = df_tis_disp[t_desig].astype(str).str.upper()
@@ -1101,7 +1212,6 @@ with tab2:
             if filter_mode == "📅 Specific Month & Year (Past & Future)":
                 col_sel_y, col_sel_m = st.columns(2)
                 
-                # ఇయర్స్‌ని నంబర్లుగా పక్కాగా మార్చుట
                 valid_dor_df['Retirement_Year'] = pd.to_numeric(valid_dor_df['Retirement_Year'], errors='coerce')
                 all_years = sorted([int(y) for y in valid_dor_df['Retirement_Year'].dropna().unique()])
                 if not all_years:
@@ -1116,7 +1226,6 @@ with tab2:
                     month_options = ["All Months"] + MONTH_NAMES
                     selected_month_str = st.selectbox("Select Retirement Month:", month_options, index=0)
 
-                # --- ఇక్కడ ఖచ్చితమైన ఫిల్టరింగ్ లాజిక్ ---
                 if selected_month_str == "All Months":
                     target_ret_df = valid_dor_df[valid_dor_df['Retirement_Year'] == int(selected_year)]
                     report_label = f"YEAR {selected_year}"
@@ -1127,6 +1236,7 @@ with tab2:
                         (valid_dor_df['Retirement_Month'] == int(sel_month_num))
                     ]
                     report_label = f"{selected_month_str.upper()} {selected_year}"
+
             elif filter_mode == "⏩ Quick Upcoming Presets (Future)":
                 ret_preset_f = st.selectbox(
                     "Select Future Timeframe:",
@@ -1175,7 +1285,6 @@ with tab2:
                         return 'SGT'
                     return 'Other Cadres'
 
-                # Table group by Exact Designation
                 desig_summary = target_ret_df.groupby(t_desig).agg(
                     Total_Retirements=(t_tid, 'count')
                 ).reset_index().rename(columns={t_desig: 'Cadre / Designation'})
@@ -1273,7 +1382,7 @@ with tab2:
                 cadre_cols_order = [c for c in ['Gr II HM', 'School Assistant', 'SGT', 'Other Cadres'] if c in cross_piv.columns]
                 cross_piv['Total Retirements'] = cross_piv[cadre_cols_order].sum(axis=1)
                 cross_piv['Status'] = np.where(cross_piv['Retirement_Year'] < curr_date.year, 'Past (Retired)', 'Future (Upcoming)')
-                cross_piv['Retirement_Year'] = cross_piv['Retirement_Year'].astype(int).astype(str)
+                cross_piv['Retirement_Year'] = cross_piv['Retirement_Year'].astype('Int64').astype(str)
 
                 final_cross_cols = ['Retirement_Year', 'Status'] + cadre_cols_order + ['Total Retirements']
                 cross_piv_display = cross_piv[final_cross_cols]
@@ -1382,7 +1491,7 @@ with tab3:
                     if not wc or clean_post.lower() not in normalize_cadre_name(wc).lower():
                         wc = next((c for c in work_cols if clean_post.lower() == normalize_cadre_name(c).lower()), wc)
                     if not vc or clean_post.lower() not in normalize_cadre_name(vc).lower():
-                        vc = next((c for c in vac_cols if clean_post.lower() == normalize_cadre_name(vc).lower()), vc)
+                        vc = next((c for c in vac_cols if clean_post.lower() == normalize_cadre_name(c).lower()), vc)
 
                     s_val = int(pd.to_numeric(c_row[sc], errors='coerce')) if pd.notnull(c_row[sc]) else 0
                     w_val = int(pd.to_numeric(c_row[wc], errors='coerce')) if wc and pd.notnull(c_row[wc]) else 0
