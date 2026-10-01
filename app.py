@@ -375,7 +375,6 @@ def load_tis_data():
             df_basic.columns = [" ".join(str(c).split()).strip() for c in df_basic.columns]
             df_appt.columns = [" ".join(str(c).split()).strip() for c in df_appt.columns]
             
-            # --- STRICT FILTER: NEW DistrictName == WEST GODAVARI ONLY ---
             new_dist_col = next((c for c in df_appt.columns if 'NEW' in c.upper() and 'DIST' in c.upper()), None)
             if not new_dist_col:
                 new_dist_col = next((c for c in df_appt.columns if 'DISTRICT' in c.upper() and 'OLD' not in c.upper()), None)
@@ -431,10 +430,10 @@ def load_tis_data():
             dob_col = next((c for c in df_merged.columns if 'DATEOFBIRTH' in c.upper() or 'DOB' in c.upper()), None)
             if dob_col:
                 df_merged['Parsed_DOB'] = df_merged[dob_col].apply(parse_indian_date)
-                df_merged['Calculated_DOR'] = df_merged['Parsed_DOB'].apply(calc_superannuation_62)
-                df_merged['Calculated_DOR'] = pd.to_datetime(df_merged['Calculated_DOR'])
-                df_merged['Retirement_Year'] = df_merged['Calculated_DOR'].dt.year
-                df_merged['Retirement_Month'] = df_merged['Calculated_DOR'].dt.month
+                # పక్కాగా డేట్‌టైప్‌లోకి కన్వర్ట్ చేయుట
+                df_merged['Calculated_DOR'] = pd.to_datetime(df_merged['Parsed_DOB'].apply(calc_superannuation_62), errors='coerce')
+                df_merged['Retirement_Year'] = df_merged['Calculated_DOR'].dt.year.astype('Int64')
+                df_merged['Retirement_Month'] = df_merged['Calculated_DOR'].dt.month.astype('Int64')
             else:
                 df_merged['Parsed_DOB'] = None
                 df_merged['Calculated_DOR'] = pd.NaT
@@ -460,10 +459,9 @@ def load_tis_data():
             dob_col = next((c for c in df_single.columns if 'DATEOFBIRTH' in c.upper() or 'DOB' in c.upper()), None)
             if dob_col:
                 df_single['Parsed_DOB'] = df_single[dob_col].apply(parse_indian_date)
-                df_single['Calculated_DOR'] = df_single['Parsed_DOB'].apply(calc_superannuation_62)
-                df_single['Calculated_DOR'] = pd.to_datetime(df_single['Calculated_DOR'])
-                df_single['Retirement_Year'] = df_single['Calculated_DOR'].dt.year
-                df_single['Retirement_Month'] = df_single['Calculated_DOR'].dt.month
+                df_single['Calculated_DOR'] = pd.to_datetime(df_single['Parsed_DOB'].apply(calc_superannuation_62), errors='coerce')
+                df_single['Retirement_Year'] = df_single['Calculated_DOR'].dt.year.astype('Int64')
+                df_single['Retirement_Month'] = df_single['Calculated_DOR'].dt.month.astype('Int64')
             return df_single
 
     except Exception as e:
