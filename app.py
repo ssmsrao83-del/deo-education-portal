@@ -1101,6 +1101,8 @@ with tab2:
             if filter_mode == "📅 Specific Month & Year (Past & Future)":
                 col_sel_y, col_sel_m = st.columns(2)
                 
+                # ఇయర్స్‌ని నంబర్లుగా పక్కాగా మార్చుట
+                valid_dor_df['Retirement_Year'] = pd.to_numeric(valid_dor_df['Retirement_Year'], errors='coerce')
                 all_years = sorted([int(y) for y in valid_dor_df['Retirement_Year'].dropna().unique()])
                 if not all_years:
                     all_years = [curr_date.year]
@@ -1112,20 +1114,19 @@ with tab2:
                 
                 with col_sel_m:
                     month_options = ["All Months"] + MONTH_NAMES
-                    default_m_idx = 0
-                    selected_month_str = st.selectbox("Select Retirement Month:", month_options, index=default_m_idx)
+                    selected_month_str = st.selectbox("Select Retirement Month:", month_options, index=0)
 
+                # --- ఇక్కడ ఖచ్చితమైన ఫిల్టరింగ్ లాజిక్ ---
                 if selected_month_str == "All Months":
-                    target_ret_df = valid_dor_df[valid_dor_df['Retirement_Year'] == selected_year]
+                    target_ret_df = valid_dor_df[valid_dor_df['Retirement_Year'] == int(selected_year)]
                     report_label = f"YEAR {selected_year}"
                 else:
                     sel_month_num = MONTH_NAMES.index(selected_month_str) + 1
                     target_ret_df = valid_dor_df[
-                        (valid_dor_df['Retirement_Year'] == selected_year) & 
-                        (valid_dor_df['Retirement_Month'] == sel_month_num)
+                        (valid_dor_df['Retirement_Year'] == int(selected_year)) & 
+                        (valid_dor_df['Retirement_Month'] == int(sel_month_num))
                     ]
                     report_label = f"{selected_month_str.upper()} {selected_year}"
-
             elif filter_mode == "⏩ Quick Upcoming Presets (Future)":
                 ret_preset_f = st.selectbox(
                     "Select Future Timeframe:",
