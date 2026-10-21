@@ -1785,7 +1785,7 @@ with tab1:
     # ---------- SUBTAB 5: ZONE-II SCHOOLS PARTICULARS --------
     # =========================================================
     with subtab5:
-      st.subheader("🏫 ZONE-II SCHOOLS PARTICULARS ABSTRACT")
+      st.subheader("🏫 DIVISION - SCHOOLS PARTICULARS ABSTRACT")
       st.caption(
           "Management-wise Schools & Total Enrolment (Classes 1-10) by"
           " Division / Mandal"
