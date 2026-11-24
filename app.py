@@ -3232,7 +3232,7 @@ with tab3:
 # ------------------ TAB 4: MIS REPORTS -------------------
 # =========================================================
 with tab4:
-  st.info("📄 CSE MIS Reports - Module Coming Soon")
+ 
 
 st.subheader("📄 CSE MIS Reports — LEAP Downloads Abstract")
 
