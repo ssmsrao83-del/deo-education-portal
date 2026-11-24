@@ -3603,3 +3603,325 @@ with tab4:
     else:
         xlsx_files = [f for f in os.listdir(".") if f.endswith(".xlsx")]
         st.warning(f"⚠️ `{LEAP_FILE_PATH}` file kanipinchaledu. Repository lo unna Excel files: {xlsx_files}")
+        with tab4:
+    st.subheader("📄 CSE MIS Reports")
+
+    DIVISION_MAP = {
+        # BHIMAVARAM DIVISION (10 Mandals)
+        "AKIVEEDU": "BHIMAVARAM",
+        "ATTILI": "BHIMAVARAM",
+        "BHIMAVARAM": "BHIMAVARAM",
+        "BHIMAVARAM URBAN": "BHIMAVARAM",
+        "BHIMAVARAM RURAL": "BHIMAVARAM",
+        "GANAPAVARAM": "BHIMAVARAM",
+        "KALLA": "BHIMAVARAM",
+        "PALAKODERU": "BHIMAVARAM",
+        "PENTAPADU": "BHIMAVARAM",
+        "TADEPALLI GUDEM": "BHIMAVARAM",
+        "TADEPALLIGUDEM": "BHIMAVARAM",
+        "UNDI": "BHIMAVARAM",
+        "VEERAVASARAM": "BHIMAVARAM",
+
+        # NARASAPURAM DIVISION (10 Mandals)
+        "ACHANTA": "NARASAPURAM",
+        "ELAMANCHILI": "NARASAPURAM",
+        "YELAMANCHILI": "NARASAPURAM",
+        "IRAGAVARAM": "NARASAPURAM",
+        "MOGALTUR": "NARASAPURAM",
+        "MOGALTHUR": "NARASAPURAM",
+        "MOGALTHURU": "NARASAPURAM",
+        "NARSAPURAM": "NARASAPURAM",
+        "NARASAPURAM": "NARASAPURAM",
+        "NARSAPUR": "NARASAPURAM",
+        "PALACOLE": "NARASAPURAM",
+        "PALAKOLLU": "NARASAPURAM",
+        "PENUGONDA": "NARASAPURAM",
+        "PENUMANTRA": "NARASAPURAM",
+        "PODURU": "NARASAPURAM",
+        "TANUKU": "NARASAPURAM",
+    }
+
+    def get_division(mandal_name):
+        if pd.isna(mandal_name):
+            return "Unmapped"
+        clean = " ".join(str(mandal_name).upper().replace("(M)", "").replace("(U)", "").replace("(R)", "").split())
+        return DIVISION_MAP.get(clean, "Unmapped")
+
+    def color_pct_cell(val):
+        try:
+            v = float(val)
+        except (ValueError, TypeError):
+            return ""
+        if v < 30:
+            return "background-color: #7f1d1d; color: #fecaca; font-weight: bold;"
+        elif v < 50:
+            return "background-color: #9a3412; color: #fed7aa; font-weight: bold;"
+        elif v < 75:
+            return "background-color: #854d0e; color: #fef08a; font-weight: bold;"
+        else:
+            return "background-color: #14532d; color: #bbf7d0; font-weight: bold;"
+
+    def print_pct_badge(v):
+        if v < 30:
+            return f'<td style="background:#fee2e2; color:#991b1b; font-weight:bold;">{v:.2f}%</td>'
+        elif v < 50:
+            return f'<td style="background:#ffedd5; color:#9a3412; font-weight:bold;">{v:.2f}%</td>'
+        elif v < 75:
+            return f'<td style="background:#fef9c3; color:#854d0e; font-weight:bold;">{v:.2f}%</td>'
+        else:
+            return f'<td style="background:#dcfce7; color:#166534; font-weight:bold;">{v:.2f}%</td>'
+
+    # Report Selector inside CSE MIS Reports
+    mis_report_type = st.radio(
+        "Select MIS Report:",
+        ["📱 LEAP Downloads Abstract", "📝 SA-1 Marks Entry Pending Report"],
+        horizontal=True,
+        key="cse_mis_report_selector"
+    )
+    st.markdown("---")
+
+    # =========================================================================
+    # REPORT 1: LEAP DOWNLOADS ABSTRACT
+    # =========================================================================
+    if mis_report_type == "📱 LEAP Downloads Abstract":
+        LEAP_FILE_PATH = "LEAP DOWNLOADS ABSTRACT.xlsx"
+
+        @st.cache_data
+        def load_leap_data(file_path):
+            preview = pd.read_excel(file_path, header=None, nrows=5)
+            header_row = 0
+            for idx, row in preview.iterrows():
+                row_str = " ".join([str(x).upper() for x in row.values if pd.notna(x)])
+                if "SCHOOL CODE" in row_str or "MANDAL NAME" in row_str:
+                    header_row = idx
+                    break
+
+            df_raw = pd.read_excel(file_path, header=header_row)
+            df_raw.columns = [str(c).strip() for c in df_raw.columns]
+
+            col_map = {c.upper(): c for c in df_raw.columns}
+            sch_code_col = col_map.get("SCHOOL CODE")
+            mandal_col = col_map.get("MANDAL NAME")
+            sch_name_col = col_map.get("SCHOOL NAME")
+            mgmt_col = col_map.get("MANAGEMENT")
+            div_col = col_map.get("DIVISION")
+
+            if not sch_code_col or not mandal_col:
+                return pd.DataFrame()
+
+            df_raw = df_raw[df_raw[sch_code_col].notna()].copy()
+            df_raw["School Code"] = df_raw[sch_code_col].astype(str).str.replace(".0", "", regex=False).str.strip()
+            df_raw["Mandal Name"] = df_raw[mandal_col].astype(str).str.strip()
+            df_raw["School Name"] = df_raw[sch_name_col].astype(str).str.strip() if sch_name_col else ""
+            df_raw["Management"] = df_raw[mgmt_col].astype(str).str.strip() if mgmt_col else "All"
+
+            if div_col:
+                df_raw["Division"] = df_raw[div_col].fillna("").astype(str).str.strip().str.upper()
+                df_raw.loc[df_raw["Division"] == "", "Division"] = df_raw.loc[df_raw["Division"] == "", "Mandal Name"].apply(get_division)
+            else:
+                df_raw["Division"] = df_raw["Mandal Name"].apply(get_division)
+
+            for target_c in ["Target Students", "Target Parents", "Achieved Students", "Achieved Parents"]:
+                actual_c = col_map.get(target_c.upper())
+                df_raw[target_c] = pd.to_numeric(df_raw[actual_c], errors="coerce").fillna(0).astype(int) if actual_c else 0
+
+            df_raw["Pending Students"] = (df_raw["Target Students"] - df_raw["Achieved Students"]).clip(lower=0)
+            df_raw["Pending Parents"] = (df_raw["Target Parents"] - df_raw["Achieved Parents"]).clip(lower=0)
+            df_raw["Students_%"] = (df_raw["Achieved Students"] / df_raw["Target Students"].replace(0, np.nan) * 100).round(2).fillna(0)
+            df_raw["Parents_%"] = (df_raw["Achieved Parents"] / df_raw["Target Parents"].replace(0, np.nan) * 100).round(2).fillna(0)
+            return df_raw
+
+        if os.path.exists(LEAP_FILE_PATH):
+            leap_df = load_leap_data(LEAP_FILE_PATH)
+
+            if leap_df.empty:
+                st.error("⚠️ Excel file lo 'School Code' / 'Mandal Name' columns dorakaledu.")
+            else:
+                f_col1, f_col2 = st.columns(2)
+                with f_col1:
+                    sel_div = st.selectbox("Filter by Division:", ["All Divisions"] + sorted(leap_df["Division"].unique().tolist()), key="leap_div_filter")
+                with f_col2:
+                    sel_mgmt = st.selectbox("Filter by Management:", ["All Managements"] + sorted(leap_df["Management"].unique().tolist()), key="leap_mgmt_filter")
+
+                if sel_div != "All Divisions":
+                    leap_df = leap_df[leap_df["Division"] == sel_div]
+                if sel_mgmt != "All Managements":
+                    leap_df = leap_df[leap_df["Management"] == sel_mgmt]
+
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Total Schools", f"{len(leap_df):,}")
+                c2.metric("Pending Students", f"{leap_df['Pending Students'].sum():,}")
+                c3.metric("Pending Parents", f"{leap_df['Pending Parents'].sum():,}")
+                tot_p = leap_df["Target Parents"].sum()
+                par_pct = round((leap_df["Achieved Parents"].sum() / tot_p * 100), 2) if tot_p > 0 else 0
+                c4.metric("Parents Achieved %", f"{par_pct}%")
+
+                st.caption("🎨 Color Legend (Parents %): 🔴 < 30% | 🟠 30%–49.9% | 🟡 50%–74.9% | 🟢 ≥ 75% (Sorted Least to Highest)")
+
+                sub_t1, sub_t2, sub_t3 = st.tabs([
+                    "🏛️ Division-Wise Abstract",
+                    "📍 Mandal-Wise Abstract",
+                    "🏫 School-Wise Pending Report"
+                ])
+
+                with sub_t1:
+                    div_abs = leap_df.groupby("Division", as_index=False).agg(
+                        Schools=("School Code", "count"),
+                        Target_Students=("Target Students", "sum"),
+                        Achieved_Students=("Achieved Students", "sum"),
+                        Pending_Students=("Pending Students", "sum"),
+                        Target_Parents=("Target Parents", "sum"),
+                        Achieved_Parents=("Achieved Parents", "sum"),
+                        Pending_Parents=("Pending Parents", "sum"),
+                    )
+                    div_abs["Students_%"] = (div_abs["Achieved_Students"] / div_abs["Target_Students"].replace(0, np.nan) * 100).round(2).fillna(0)
+                    div_abs["Parents_%"] = (div_abs["Achieved_Parents"] / div_abs["Target_Parents"].replace(0, np.nan) * 100).round(2).fillna(0)
+                    div_abs = div_abs.sort_values(by="Parents_%", ascending=True)
+                    styled_div = div_abs.style.map(color_pct_cell, subset=["Parents_%", "Students_%"]).format({"Students_%": "{:.2f}%", "Parents_%": "{:.2f}%"})
+                    st.dataframe(styled_div, use_container_width=True, hide_index=True)
+
+                with sub_t2:
+                    mandal_abs = leap_df.groupby(["Division", "Mandal Name"], as_index=False).agg(
+                        Schools=("School Code", "count"),
+                        Target_Students=("Target Students", "sum"),
+                        Achieved_Students=("Achieved Students", "sum"),
+                        Pending_Students=("Pending Students", "sum"),
+                        Target_Parents=("Target Parents", "sum"),
+                        Achieved_Parents=("Achieved Parents", "sum"),
+                        Pending_Parents=("Pending Parents", "sum"),
+                    )
+                    mandal_abs["Students_%"] = (mandal_abs["Achieved_Students"] / mandal_abs["Target_Students"].replace(0, np.nan) * 100).round(2).fillna(0)
+                    mandal_abs["Parents_%"] = (mandal_abs["Achieved_Parents"] / mandal_abs["Target_Parents"].replace(0, np.nan) * 100).round(2).fillna(0)
+                    mandal_abs = mandal_abs.sort_values(by="Parents_%", ascending=True)
+                    styled_mandal = mandal_abs.style.map(color_pct_cell, subset=["Parents_%", "Students_%"]).format({"Students_%": "{:.2f}%", "Parents_%": "{:.2f}%"})
+                    st.dataframe(styled_mandal, use_container_width=True, hide_index=True)
+
+                with sub_t3:
+                    sel_mandal = st.selectbox("Select Mandal:", ["All Mandals"] + sorted(leap_df["Mandal Name"].unique().tolist()), key="leap_mandal_filter")
+                    sch_df = leap_df if sel_mandal == "All Mandals" else leap_df[leap_df["Mandal Name"] == sel_mandal]
+                    if st.checkbox("Show Only Pending Schools (> 0)", value=True, key="leap_only_pend_chk"):
+                        sch_df = sch_df[(sch_df["Pending Students"] > 0) | (sch_df["Pending Parents"] > 0)]
+
+                    disp_cols = [
+                        "Division", "Mandal Name", "School Code", "School Name", "Management",
+                        "Target Students", "Achieved Students", "Pending Students", "Students_%",
+                        "Target Parents", "Achieved Parents", "Pending Parents", "Parents_%"
+                    ]
+                    sch_sorted = sch_df[disp_cols].sort_values(by=["Parents_%", "Pending Parents"], ascending=[True, False])
+                    styled_sch = sch_sorted.style.map(color_pct_cell, subset=["Parents_%", "Students_%"]).format({"Students_%": "{:.2f}%", "Parents_%": "{:.2f}%"})
+                    st.dataframe(styled_sch, use_container_width=True, hide_index=True)
+
+                dl_col1, dl_col2 = st.columns(2)
+                with dl_col1:
+                    buf = io.BytesIO()
+                    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+                        styled_div.to_excel(writer, sheet_name="Division_Abstract", index=False)
+                        styled_mandal.to_excel(writer, sheet_name="Mandal_Abstract", index=False)
+                        sch_sorted.to_excel(writer, sheet_name="School_Wise_Pending", index=False)
+                    st.download_button(
+                        label="📥 Download Excel Abstract (Color-Coded)",
+                        data=buf.getvalue(),
+                        file_name="LEAP_Mandal_Division_Abstract.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                with dl_col2:
+                    today_str = datetime.now().strftime("%d-%m-%Y %I:%M %p")
+                    div_rows_html = ""
+                    for idx, r in enumerate(div_abs.itertuples(), 1):
+                        div_rows_html += f"<tr><td>{idx}</td><td style='text-align:left;font-weight:bold;'>{r.Division}</td><td>{r.Schools:,}</td><td>{r.Target_Students:,}</td><td>{r.Achieved_Students:,}</td><td>{r.Pending_Students:,}</td>{print_pct_badge(r._9)}<td>{r.Target_Parents:,}</td><td>{r.Achieved_Parents:,}</td><td>{r.Pending_Parents:,}</td>{print_pct_badge(r._10)}</tr>"
+                    d_sch = div_abs["Schools"].sum()
+                    d_ts, d_as, d_ps = div_abs["Target_Students"].sum(), div_abs["Achieved_Students"].sum(), div_abs["Pending_Students"].sum()
+                    d_tp, d_ap, d_pp = div_abs["Target_Parents"].sum(), div_abs["Achieved_Parents"].sum(), div_abs["Pending_Parents"].sum()
+                    d_spct = (d_as / d_ts * 100) if d_ts > 0 else 0
+                    d_ppct = (d_ap / d_tp * 100) if d_tp > 0 else 0
+                    div_rows_html += f"<tr class='total-row'><td colspan='2'>DISTRICT TOTAL</td><td>{d_sch:,}</td><td>{d_ts:,}</td><td>{d_as:,}</td><td>{d_ps:,}</td><td>{d_spct:.2f}%</td><td>{d_tp:,}</td><td>{d_ap:,}</td><td>{d_pp:,}</td><td>{d_ppct:.2f}%</td></tr>"
+
+                    mandal_rows_html = ""
+                    for idx, r in enumerate(mandal_abs.itertuples(), 1):
+                        mandal_rows_html += f"<tr><td>{idx}</td><td>{r.Division}</td><td style='text-align:left;font-weight:bold;'>{r._2}</td><td>{r.Schools:,}</td><td>{r.Target_Students:,}</td><td>{r.Achieved_Students:,}</td><td>{r.Pending_Students:,}</td>{print_pct_badge(r._10)}<td>{r.Target_Parents:,}</td><td>{r.Achieved_Parents:,}</td><td>{r.Pending_Parents:,}</td>{print_pct_badge(r._11)}</tr>"
+                    mandal_rows_html += f"<tr class='total-row'><td colspan='3'>DISTRICT TOTAL</td><td>{d_sch:,}</td><td>{d_ts:,}</td><td>{d_as:,}</td><td>{d_ps:,}</td><td>{d_spct:.2f}%</td><td>{d_tp:,}</td><td>{d_ap:,}</td><td>{d_pp:,}</td><td>{d_ppct:.2f}%</td></tr>"
+
+                    print_html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><title>LEAP Downloads Abstract</title><style>@page{{size:A4 landscape;margin:10mm;}}body{{font-family:Arial,sans-serif;color:#111;margin:0;padding:10px;-webkit-print-color-adjust:exact;print-color-adjust:exact;}}.header{{text-align:center;border-bottom:2px solid #0f766e;padding-bottom:6px;margin-bottom:10px;}}.header h2{{margin:0;font-size:16px;color:#0f766e;}}.header p{{margin:3px 0 0;font-size:11px;color:#444;}}.print-btn{{background:#0f766e;color:#fff;border:none;padding:8px 16px;font-size:13px;font-weight:bold;border-radius:4px;cursor:pointer;margin-bottom:10px;}}@media print{{.print-btn{{display:none;}}}}h3{{font-size:13px;margin:10px 0 5px;color:#1e3a8a;}}table{{width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:12px;}}th,td{{border:1px solid #94a3b8;padding:4px 6px;text-align:center;}}th{{background-color:#0f766e;color:#fff;font-weight:bold;}}.total-row td{{background-color:#e2e8f0;font-weight:bold;}}</style></head><body onload="window.print()"><button class="print-btn" onclick="window.print()">🖨️ Print / Save as PDF</button><div class="header"><h2>OFFICE OF THE DISTRICT EDUCATIONAL OFFICER, WEST GODAVARI, BHIMAVARAM</h2><p><b>LEAP Downloads Abstract (Division &amp; Mandal-Wise Pending Report)</b> | Division: {sel_div} | Management: {sel_mgmt} | Generated: {today_str}</p></div><h3>1. Division-Wise Abstract (Sorted Least to Highest Parents %)</h3><table><thead><tr><th>S.No</th><th>Division</th><th>Schools</th><th>Target Students</th><th>Achieved Students</th><th>Pending Students</th><th>Students %</th><th>Target Parents</th><th>Achieved Parents</th><th>Pending Parents</th><th>Parents %</th></tr></thead><tbody>{div_rows_html}</tbody></table><h3>2. Mandal-Wise Abstract (Sorted Least to Highest Parents %)</h3><table><thead><tr><th>S.No</th><th>Division</th><th>Mandal Name</th><th>Schools</th><th>Target Students</th><th>Achieved Students</th><th>Pending Students</th><th>Students %</th><th>Target Parents</th><th>Achieved Parents</th><th>Pending Parents</th><th>Parents %</th></tr></thead><tbody>{mandal_rows_html}</tbody></table></body></html>"""
+                    st.download_button(
+                        label="🖨️ Print / Save as A4 PDF Report",
+                        data=print_html.encode("utf-8"),
+                        file_name="LEAP_Abstract_Print_Report.html",
+                        mime="text/html",
+                        use_container_width=True
+                    )
+        else:
+            xlsx_files = [f for f in os.listdir(".") if f.endswith(".xlsx")]
+            st.warning(f"⚠️ `{LEAP_FILE_PATH}` file kanipinchaledu. Repository lo unna Excel files: {xlsx_files}")
+
+    # =========================================================================
+    # REPORT 2: SA-1 MARKS ENTRY PENDING REPORT
+    # =========================================================================
+    elif mis_report_type == "📝 SA-1 Marks Entry Pending Report":
+        SA1_FILE_PATH = "SA1 MARKS ENTRY.xlsx"
+
+        @st.cache_data
+        def load_sa1_data(file_path):
+            preview = pd.read_excel(file_path, header=None, nrows=5)
+            header_row = 0
+            for idx, row in preview.iterrows():
+                row_str = " ".join([str(x).upper() for x in row.values if pd.notna(x)])
+                if "SCHOOL CODE" in row_str or "TOTAL STUDENTS" in row_str:
+                    header_row = idx
+                    break
+
+            df_raw = pd.read_excel(file_path, header=header_row)
+            df_raw.columns = [str(c).strip() for c in df_raw.columns]
+
+            col_map = {c.upper(): c for c in df_raw.columns}
+            sch_code_col = col_map.get("SCHOOL CODE")
+            mandal_col = col_map.get("MANDAL NAME")
+            sch_name_col = col_map.get("SCHOOL NAME")
+            sch_mgmt_col = col_map.get("SCHOOL MANAGEMENT")
+            mgmt_type_col = col_map.get("MANAGEMENT TYPE")
+            div_col = col_map.get("DIVISION")
+
+            if not sch_code_col or not mandal_col:
+                return pd.DataFrame()
+
+            df_raw = df_raw[df_raw[sch_code_col].notna()].copy()
+            df_raw["School Code"] = df_raw[sch_code_col].astype(str).str.replace(".0", "", regex=False).str.strip()
+            df_raw["Mandal Name"] = df_raw[mandal_col].astype(str).str.strip()
+            df_raw["School Name"] = df_raw[sch_name_col].astype(str).str.strip() if sch_name_col else ""
+            df_raw["School Management"] = df_raw[sch_mgmt_col].astype(str).str.strip() if sch_mgmt_col else "Unknown"
+            df_raw["Management Type"] = df_raw[mgmt_type_col].astype(str).str.strip() if mgmt_type_col else "Unknown"
+
+            if div_col:
+                df_raw["Division"] = df_raw[div_col].fillna("").astype(str).str.strip().str.upper()
+                df_raw.loc[df_raw["Division"] == "", "Division"] = df_raw.loc[df_raw["Division"] == "", "Mandal Name"].apply(get_division)
+            else:
+                df_raw["Division"] = df_raw["Mandal Name"].apply(get_division)
+
+            for target_c in ["Total Students", "Completed Students", "Partially Completed Students"]:
+                actual_c = col_map.get(target_c.upper())
+                df_raw[target_c] = pd.to_numeric(df_raw[actual_c], errors="coerce").fillna(0).astype(int) if actual_c else 0
+
+            # Not Started & Total Pending Calculations
+            df_raw["Not Started Students"] = (df_raw["Total Students"] - df_raw["Completed Students"] - df_raw["Partially Completed Students"]).clip(lower=0)
+            df_raw["Total Pending Students"] = (df_raw["Total Students"] - df_raw["Completed Students"]).clip(lower=0)
+            df_raw["Completed_%"] = (df_raw["Completed Students"] / df_raw["Total Students"].replace(0, np.nan) * 100).round(2).fillna(0)
+            return df_raw
+
+        if os.path.exists(SA1_FILE_PATH):
+            sa1_df = load_sa1_data(SA1_FILE_PATH)
+
+            if sa1_df.empty:
+                st.error("⚠️ Excel file lo 'School Code' / 'Total Students' columns dorakaledu. File headers okasari check cheyandi.")
+            else:
+                # Top Filters: Division, Management Type, School Management
+                fc1, fc2, fc3 = st.columns(3)
+                with fc1:
+                    sel_div_sa1 = st.selectbox("Filter by Division:", ["All Divisions"] + sorted(sa1_df["Division"].unique().tolist()), key="sa1_div_f")
+                with fc2:
+                    sel_mtype_sa1 = st.selectbox("Filter by Management Type:", ["All Management Types"] + sorted(sa1_df["Management Type"].unique().tolist()), key="sa1_mtype_f")
+                with fc3:
+                    sel_smgmt_sa1 = st.selectbox("Filter by School Management:", ["All School Managements"] + sorted(sa1_df["School Management"].unique().tolist()), key="sa1_smgmt_f")
+
+                if sel_div_sa1 != "All Divisions":
+                    sa1_df = sa1_df[sa1_df["Division"] == sel_div_sa1]
+                if sel_mtype_sa1 != "All Management
