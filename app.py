@@ -3233,3 +3233,139 @@ with tab3:
 # =========================================================
 with tab4:
   st.info("📄 CSE MIS Reports - Module Coming Soon")
+
+st.subheader("📄 CSE MIS Reports — LEAP Downloads Abstract")
+
+    # West Godavari Mandal to DyEO Division Mapping
+    DIVISION_MAP = {
+        "BHIMAVARAM": "Bhimavaram Division",
+        "VEERAVASARAM": "Bhimavaram Division",
+        "KALLA": "Bhimavaram Division",
+        "UNDI": "Bhimavaram Division",
+        "AKIVEEDU": "Bhimavaram Division",
+        "PALAKODERU": "Bhimavaram Division",
+        "NARSAPURAM": "Narsapuram Division",
+        "MOGALTHUR": "Narsapuram Division",
+        "PALACOLE": "Narsapuram Division",
+        "PALAKOLLU": "Narsapuram Division",
+        "YELAMANCHILI": "Narsapuram Division",
+        "PODURU": "Narsapuram Division",
+        "ACHANTA": "Narsapuram Division",
+        "PENUGONDA": "Tanuku Division",
+        "PENUMANTRA": "Tanuku Division",
+        "IRAGAVARAM": "Tanuku Division",
+        "ATTILI": "Tanuku Division",
+        "TANUKU": "Tanuku Division",
+        "TADEPALLIGUDEM": "Tadepalligudem Division",
+        "PENTAPADU": "Tadepalligudem Division",
+        "GANAPAVARAM": "Tadepalligudem Division",
+    }
+
+    @st.cache_data
+    def load_leap_data(file_path):
+        # Title row (Row 1) skip chesi Row 2 headers tho read chesthundi
+        df_raw = pd.read_excel(file_path, header=1)
+        df_raw.columns = [str(c).strip() for c in df_raw.columns]
+        # Total / Blank rows filter cheyadam
+        df_raw = df_raw[df_raw["School Code"].notna()].copy()
+        df_raw["Mandal Clean"] = df_raw["Mandal Name"].astype(str).str.strip().str.upper()
+        df_raw["Division"] = df_raw["Mandal Clean"].map(DIVISION_MAP).fillna("Other / Unmapped")
+        for col in ["Target Students", "Target Parents", "Achieved Students", "Achieved Parents"]:
+            df_raw[col] = pd.to_numeric(df_raw[col], errors="coerce").fillna(0).astype(int)
+        df_raw["Pending Students"] = (df_raw["Target Students"] - df_raw["Achieved Students"]).clip(lower=0)
+        df_raw["Pending Parents"] = (df_raw["Target Parents"] - df_raw["Achieved Parents"]).clip(lower=0)
+        return df_raw
+
+    if os.path.exists(LEAP_FILE_PATH):
+        leap_df = load_leap_data(LEAP_FILE_PATH)
+
+        # Management Filter
+        mgmt_options = ["All Managements"] + sorted(leap_df["Management"].dropna().unique().tolist())
+        sel_mgmt = st.selectbox("Filter by Management:", mgmt_options, key="leap_mgmt")
+        if sel_mgmt != "All Managements":
+            leap_df = leap_df[leap_df["Management"] == sel_mgmt]
+
+        # Top KPI Metrics
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total Schools", f"{len(leap_df):,}")
+        c2.metric("Pending Students", f"{leap_df['Pending Students'].sum():,}")
+        c3.metric("Pending Parents", f"{leap_df['Pending Parents'].sum():,}")
+        tot_t = leap_df["Target Students"].sum()
+        stu_pct = round((leap_df["Achieved Students"].sum() / tot_t * 100), 2) if tot_t > 0 else 0
+        c4.metric("Students Achieved %", f"{stu_pct}%")
+
+        sub_t1, sub_t2, sub_t3 = st.tabs([
+            "🏛️ Division-Wise Abstract",
+            "📍 Mandal-Wise Abstract",
+            "🏫 School-Wise Pending Report"
+        ])
+
+        # 1. DIVISION-WISE ABSTRACT
+        with sub_t1:
+            div_abs = leap_df.groupby("Division", as_index=False).agg(
+                Schools=("School Code", "count"),
+                Target_Students=("Target Students", "sum"),
+                Achieved_Students=("Achieved Students", "sum"),
+                Pending_Students=("Pending Students", "sum"),
+                Target_Parents=("Target Parents", "sum"),
+                Achieved_Parents=("Achieved Parents", "sum"),
+                Pending_Parents=("Pending Parents", "sum"),
+            )
+            div_abs["Students_%"] = (div_abs["Achieved_Students"] / div_abs["Target_Students"].replace(0, np.nan) * 100).round(2).fillna(0)
+            div_abs["Parents_%"] = (div_abs["Achieved_Parents"] / div_abs["Target_Parents"].replace(0, np.nan) * 100).round(2).fillna(0)
+            st.dataframe(div_abs, use_container_width=True, hide_index=True)
+
+        # 2. MANDAL-WISE ABSTRACT
+        with sub_t2:
+            mandal_abs = leap_df.groupby(["Division", "Mandal Name"], as_index=False).agg(
+                Schools=("School Code", "count"),
+                Target_Students=("Target Students", "sum"),
+                Achieved_Students=("Achieved Students", "sum"),
+                Pending_Students=("Pending Students", "sum"),
+                Target_Parents=("Target Parents", "sum"),
+                Achieved_Parents=("Achieved Parents", "sum"),
+                Pending_Parents=("Pending Parents", "sum"),
+            )
+            mandal_abs["Students_%"] = (mandal_abs["Achieved_Students"] / mandal_abs["Target_Students"].replace(0, np.nan) * 100).round(2).fillna(0)
+            mandal_abs["Parents_%"] = (mandal_abs["Achieved_Parents"] / mandal_abs["Target_Parents"].replace(0, np.nan) * 100).round(2).fillna(0)
+            mandal_abs = mandal_abs.sort_values(by="Pending_Students", ascending=False)
+            st.dataframe(mandal_abs, use_container_width=True, hide_index=True)
+
+        # 3. SCHOOL-WISE PENDING REPORT
+        with sub_t3:
+            sel_mandal = st.selectbox(
+                "Select Mandal:",
+                ["All Mandals"] + sorted(leap_df["Mandal Name"].dropna().unique().tolist()),
+                key="leap_mandal"
+            )
+            sch_df = leap_df if sel_mandal == "All Mandals" else leap_df[leap_df["Mandal Name"] == sel_mandal]
+            only_pending = st.checkbox("Show Only Pending Schools (> 0)", value=True, key="leap_only_pend")
+            if only_pending:
+                sch_df = sch_df[(sch_df["Pending Students"] > 0) | (sch_df["Pending Parents"] > 0)]
+
+            disp_cols = [
+                "Division", "Mandal Name", "School Code", "School Name", "Management",
+                "Target Students", "Achieved Students", "Pending Students",
+                "Target Parents", "Achieved Parents", "Pending Parents"
+            ]
+            st.dataframe(
+                sch_df[disp_cols].sort_values(by="Pending Students", ascending=False),
+                use_container_width=True,
+                hide_index=True
+            )
+
+        # Excel Download Button (All 3 Sheets)
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+            div_abs.to_excel(writer, sheet_name="Division_Abstract", index=False)
+            mandal_abs.to_excel(writer, sheet_name="Mandal_Abstract", index=False)
+            leap_df[disp_cols].to_excel(writer, sheet_name="School_Wise_Pending", index=False)
+
+        st.download_button(
+            label="📥 Download Division & Mandal Abstract (Excel)",
+            data=buf.getvalue(),
+            file_name="LEAP_Mandal_Division_Abstract.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    else:
+        st.warning(f"⚠️ `{LEAP_FILE_PATH}` file repository lo ledu. Dayachesi GitHub lo upload cheyandi.")
