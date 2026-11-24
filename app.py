@@ -3275,20 +3275,31 @@ with tab4:
         clean = " ".join(str(mandal_name).upper().replace("(M)", "").replace("(U)", "").replace("(R)", "").split())
         return DIVISION_MAP.get(clean, "Unmapped")
 
-    # Least-to-Highest Color Coding Function (Red -> Amber -> Green)
+    # Dark UI Color Coding (For Portal View)
     def color_pct_cell(val):
         try:
             v = float(val)
         except (ValueError, TypeError):
             return ""
         if v < 30:
-            return "background-color: #7f1d1d; color: #fecaca; font-weight: bold;"  # Dark Red (Low)
+            return "background-color: #7f1d1d; color: #fecaca; font-weight: bold;"
         elif v < 50:
-            return "background-color: #9a3412; color: #fed7aa; font-weight: bold;"  # Orange
+            return "background-color: #9a3412; color: #fed7aa; font-weight: bold;"
         elif v < 75:
-            return "background-color: #854d0e; color: #fef08a; font-weight: bold;"  # Amber/Yellow
+            return "background-color: #854d0e; color: #fef08a; font-weight: bold;"
         else:
-            return "background-color: #14532d; color: #bbf7d0; font-weight: bold;"  # Dark Green (High)
+            return "background-color: #14532d; color: #bbf7d0; font-weight: bold;"
+
+    # Light Print-Friendly Color Coding (For A4 PDF Print)
+    def print_pct_badge(v):
+        if v < 30:
+            return f'<td style="background:#fee2e2; color:#991b1b; font-weight:bold;">{v:.2f}%</td>'
+        elif v < 50:
+            return f'<td style="background:#ffedd5; color:#9a3412; font-weight:bold;">{v:.2f}%</td>'
+        elif v < 75:
+            return f'<td style="background:#fef9c3; color:#854d0e; font-weight:bold;">{v:.2f}%</td>'
+        else:
+            return f'<td style="background:#dcfce7; color:#166534; font-weight:bold;">{v:.2f}%</td>'
 
     @st.cache_data
     def load_leap_data(file_path):
@@ -3436,19 +3447,159 @@ with tab4:
                 })
                 st.dataframe(styled_sch, use_container_width=True, hide_index=True)
 
-            # Excel Download Button (With Color Coding in Excel too!)
-            buf = io.BytesIO()
-            with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-                styled_div.to_excel(writer, sheet_name="Division_Abstract", index=False)
-                styled_mandal.to_excel(writer, sheet_name="Mandal_Abstract", index=False)
-                sch_sorted.to_excel(writer, sheet_name="School_Wise_Pending", index=False)
+            # --- DOWNLOAD BUTTONS ROW (EXCEL + PDF PRINT) ---
+            dl_col1, dl_col2 = st.columns(2)
 
-            st.download_button(
-                label="📥 Download Division & Mandal Abstract (Color-Coded Excel)",
-                data=buf.getvalue(),
-                file_name="LEAP_Mandal_Division_Abstract.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            # 1. Excel Export
+            with dl_col1:
+                buf = io.BytesIO()
+                with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+                    styled_div.to_excel(writer, sheet_name="Division_Abstract", index=False)
+                    styled_mandal.to_excel(writer, sheet_name="Mandal_Abstract", index=False)
+                    sch_sorted.to_excel(writer, sheet_name="School_Wise_Pending", index=False)
+
+                st.download_button(
+                    label="📥 Download Excel Abstract (Color-Coded)",
+                    data=buf.getvalue(),
+                    file_name="LEAP_Mandal_Division_Abstract.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+
+            # 2. A4 Print-Ready PDF Report Export
+            with dl_col2:
+                today_str = datetime.now().strftime("%d-%m-%Y %I:%M %p")
+                div_rows_html = ""
+                for idx, r in enumerate(div_abs.itertuples(), 1):
+                    div_rows_html += f"""
+                    <tr>
+                        <td>{idx}</td>
+                        <td style="text-align:left; font-weight:bold;">{r.Division}</td>
+                        <td>{r.Schools:,}</td>
+                        <td>{r.Target_Students:,}</td>
+                        <td>{r.Achieved_Students:,}</td>
+                        <td>{r.Pending_Students:,}</td>
+                        {print_pct_badge(r._9)}
+                        <td>{r.Target_Parents:,}</td>
+                        <td>{r.Achieved_Parents:,}</td>
+                        <td>{r.Pending_Parents:,}</td>
+                        {print_pct_badge(r._10)}
+                    </tr>"""
+
+                # District Total Row for Division Table
+                d_sch = div_abs["Schools"].sum()
+                d_ts, d_as, d_ps = div_abs["Target_Students"].sum(), div_abs["Achieved_Students"].sum(), div_abs["Pending_Students"].sum()
+                d_tp, d_ap, d_pp = div_abs["Target_Parents"].sum(), div_abs["Achieved_Parents"].sum(), div_abs["Pending_Parents"].sum()
+                d_spct = (d_as / d_ts * 100) if d_ts > 0 else 0
+                d_ppct = (d_ap / d_tp * 100) if d_tp > 0 else 0
+                div_rows_html += f"""
+                <tr class="total-row">
+                    <td colspan="2">DISTRICT TOTAL</td>
+                    <td>{d_sch:,}</td>
+                    <td>{d_ts:,}</td>
+                    <td>{d_as:,}</td>
+                    <td>{d_ps:,}</td>
+                    <td>{d_spct:.2f}%</td>
+                    <td>{d_tp:,}</td>
+                    <td>{d_ap:,}</td>
+                    <td>{d_pp:,}</td>
+                    <td>{d_ppct:.2f}%</td>
+                </tr>"""
+
+                mandal_rows_html = ""
+                for idx, r in enumerate(mandal_abs.itertuples(), 1):
+                    mandal_rows_html += f"""
+                    <tr>
+                        <td>{idx}</td>
+                        <td>{r.Division}</td>
+                        <td style="text-align:left; font-weight:bold;">{r._2}</td>
+                        <td>{r.Schools:,}</td>
+                        <td>{r.Target_Students:,}</td>
+                        <td>{r.Achieved_Students:,}</td>
+                        <td>{r.Pending_Students:,}</td>
+                        {print_pct_badge(r._10)}
+                        <td>{r.Target_Parents:,}</td>
+                        <td>{r.Achieved_Parents:,}</td>
+                        <td>{r.Pending_Parents:,}</td>
+                        {print_pct_badge(r._11)}
+                    </tr>"""
+
+                mandal_rows_html += f"""
+                <tr class="total-row">
+                    <td colspan="3">DISTRICT TOTAL</td>
+                    <td>{d_sch:,}</td>
+                    <td>{d_ts:,}</td>
+                    <td>{d_as:,}</td>
+                    <td>{d_ps:,}</td>
+                    <td>{d_spct:.2f}%</td>
+                    <td>{d_tp:,}</td>
+                    <td>{d_ap:,}</td>
+                    <td>{d_pp:,}</td>
+                    <td>{d_ppct:.2f}%</td>
+                </tr>"""
+
+                print_html = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LEAP Downloads Abstract - West Godavari</title>
+<style>
+    @page {{ size: A4 landscape; margin: 10mm; }}
+    body {{ font-family: Arial, sans-serif; color: #111; margin: 0; padding: 10px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+    .header {{ text-align: center; border-bottom: 2px solid #0f766e; padding-bottom: 6px; margin-bottom: 10px; }}
+    .header h2 {{ margin: 0; font-size: 16px; color: #0f766e; text-transform: uppercase; }}
+    .header p {{ margin: 3px 0 0; font-size: 11px; color: #444; }}
+    .print-btn {{ background: #0f766e; color: #fff; border: none; padding: 8px 16px; font-size: 13px; font-weight: bold; border-radius: 4px; cursor: pointer; margin-bottom: 10px; }}
+    @media print {{ .print-btn {{ display: none; }} }}
+    h3 {{ font-size: 13px; margin: 10px 0 5px; color: #1e3a8a; }}
+    table {{ width: 100%; border-collapse: collapse; font-size: 10.5px; margin-bottom: 12px; }}
+    th, td {{ border: 1px solid #94a3b8; padding: 4px 6px; text-align: center; }}
+    th {{ background-color: #0f766e; color: #ffffff; font-weight: bold; }}
+    .total-row td {{ background-color: #e2e8f0; font-weight: bold; color: #000; }}
+    .footer {{ text-align: right; font-size: 10px; color: #555; margin-top: 8px; }}
+</style>
+</head>
+<body onload="window.print()">
+    <button class="print-btn" onclick="window.print()">🖨️ Print / Save as PDF</button>
+    <div class="header">
+        <h2>Office of the District Educational Officer, West Godavari, Bhimavaram</h2>
+        <p><b>LEAP Downloads Abstract (Division &amp; Mandal-Wise Pending Report)</b> | Division: {sel_div} | Management: {sel_mgmt} | Generated: {today_str}</p>
+    </div>
+
+    <h3>1. Division-Wise Abstract (Sorted Least to Highest Parents %)</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>S.No</th><th>Division</th><th>Schools</th>
+                <th>Target Students</th><th>Achieved Students</th><th>Pending Students</th><th>Students %</th>
+                <th>Target Parents</th><th>Achieved Parents</th><th>Pending Parents</th><th>Parents %</th>
+            </tr>
+        </thead>
+        <tbody>{div_rows_html}</tbody>
+    </table>
+
+    <h3>2. Mandal-Wise Abstract (Sorted Least to Highest Parents %)</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>S.No</th><th>Division</th><th>Mandal Name</th><th>Schools</th>
+                <th>Target Students</th><th>Achieved Students</th><th>Pending Students</th><th>Students %</th>
+                <th>Target Parents</th><th>Achieved Parents</th><th>Pending Parents</th><th>Parents %</th>
+            </tr>
+        </thead>
+        <tbody>{mandal_rows_html}</tbody>
+    </table>
+    <div class="footer">Color Legend (Parents %): Red (&lt;30%) | Orange (30%-49.9%) | Yellow (50%-74.9%) | Green (&ge;75%)</div>
+</body>
+</html>"""
+
+                st.download_button(
+                    label="🖨️ Print / Save as A4 PDF Report",
+                    data=print_html.encode("utf-8"),
+                    file_name="LEAP_Abstract_Print_Report.html",
+                    mime="text/html",
+                    use_container_width=True
+                )
     else:
         xlsx_files = [f for f in os.listdir(".") if f.endswith(".xlsx")]
         st.warning(f"⚠️ `{LEAP_FILE_PATH}` file kanipinchaledu. Repository lo unna Excel files: {xlsx_files}")
