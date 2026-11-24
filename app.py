@@ -3233,29 +3233,39 @@ with tab3:
 with tab4:
     st.subheader("📄 CSE MIS Reports — LEAP Downloads Abstract")
     LEAP_FILE_PATH = "LEAP DOWNLOADS ABSTRACT.xlsx"
-    DIVISION_MAP = {
-        "BHIMAVARAM": "Bhimavaram Division",
-        "VEERAVASARAM": "Bhimavaram Division",
-        "KALLA": "Bhimavaram Division",
-        "UNDI": "Bhimavaram Division",
-        "AKIVEEDU": "Bhimavaram Division",
-        "PALAKODERU": "Bhimavaram Division",
-        "NARSAPURAM": "Narsapuram Division",
-        "MOGALTHUR": "Narsapuram Division",
-        "PALACOLE": "Narsapuram Division",
-        "PALAKOLLU": "Narsapuram Division",
-        "YELAMANCHILI": "Narsapuram Division",
-        "PODURU": "Narsapuram Division",
-        "ACHANTA": "Narsapuram Division",
-        "PENUGONDA": "Tanuku Division",
-        "PENUMANTRA": "Tanuku Division",
-        "IRAGAVARAM": "Tanuku Division",
-        "ATTILI": "Tanuku Division",
-        "TANUKU": "Tanuku Division",
-        "TADEPALLIGUDEM": "Tadepalligudem Division",
-        "PENTAPADU": "Tadepalligudem Division",
-        "GANAPAVARAM": "Tadepalligudem Division",
-    }
+    # Global West Godavari Mandal -> DyEO Division Mapping (All Modules)
+DIVISION_MAP = {
+    "BHIMAVARAM": "Bhimavaram Division",
+    "BHIMAVARAM URBAN": "Bhimavaram Division",
+    "BHIMAVARAM RURAL": "Bhimavaram Division",
+    "VEERAVASARAM": "Bhimavaram Division",
+    "KALLA": "Bhimavaram Division",
+    "UNDI": "Bhimavaram Division",
+    "AKIVEEDU": "Bhimavaram Division",
+    "PALAKODERU": "Bhimavaram Division",
+    "NARSAPURAM": "Narsapuram Division",
+    "NARSAPUR": "Narsapuram Division",
+    "MOGALTHUR": "Narsapuram Division",
+    "MOGALTHURU": "Narsapuram Division",
+    "PALACOLE": "Narsapuram Division",
+    "PALAKOLLU": "Narsapuram Division",
+    "YELAMANCHILI": "Narsapuram Division",
+    "PODURU": "Narsapuram Division",
+    "ACHANTA": "Narsapuram Division",
+    "PENUGONDA": "Tanuku Division",
+    "PENUMANTRA": "Tanuku Division",
+    "IRAGAVARAM": "Tanuku Division",
+    "ATTILI": "Tanuku Division",
+    "TANUKU": "Tanuku Division",
+    "TADEPALLIGUDEM": "Tadepalligudem Division",
+    "PENTAPADU": "Tadepalligudem Division",
+    "GANAPAVARAM": "Tadepalligudem Division",
+}
+def get_division(mandal_name):
+    if pd.isna(mandal_name):
+        return "Unmapped"
+    clean = str(mandal_name).upper().replace("(M)", "").replace("(U)", "").replace("(R)", "").strip()
+    return DIVISION_MAP.get(clean, "Unmapped")
 
     @st.cache_data
     def load_leap_data(file_path):
