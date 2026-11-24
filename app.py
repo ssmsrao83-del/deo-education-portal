@@ -3322,10 +3322,266 @@ with tab4:
             f"{body_html}</body></html>"
         )
 
-    # Cadre Strength Tab laaga pakka pakkana Sub-Tabs
-    mis_tab1, mis_tab2 = st.tabs([
+    # Shared Loader for SA-1 & FA-2 Marks Entry Files
+    @st.cache_data
+    def load_exam_marks_data(file_path):
+        preview = pd.read_excel(file_path, header=None, nrows=5)
+        header_row = 0
+        for idx, row in preview.iterrows():
+            row_str = " ".join([str(x).upper() for x in row.values if pd.notna(x)])
+            if "SCHOOL CODE" in row_str or "TOTAL STUDENTS" in row_str:
+                header_row = idx
+                break
+
+        df_raw = pd.read_excel(file_path, header=header_row)
+        df_raw.columns = [str(c).strip() for c in df_raw.columns]
+
+        col_map = {c.upper(): c for c in df_raw.columns}
+        sch_code_col = col_map.get("SCHOOL CODE")
+        mandal_col = col_map.get("MANDAL NAME")
+        sch_name_col = col_map.get("SCHOOL NAME")
+        sch_mgmt_col = col_map.get("SCHOOL MANAGEMENT")
+        mgmt_type_col = col_map.get("MANAGEMENT TYPE")
+        div_col = col_map.get("DIVISION")
+
+        if not sch_code_col or not mandal_col:
+            return pd.DataFrame()
+
+        df_raw = df_raw[df_raw[sch_code_col].notna()].copy()
+        df_raw["School Code"] = df_raw[sch_code_col].astype(str).str.replace(".0", "", regex=False).str.strip()
+        df_raw["Mandal Name"] = df_raw[mandal_col].astype(str).str.strip()
+        df_raw["School Name"] = df_raw[sch_name_col].astype(str).str.strip() if sch_name_col else ""
+        df_raw["School Management"] = df_raw[sch_mgmt_col].astype(str).str.strip() if sch_mgmt_col else "Unknown"
+        df_raw["Management Type"] = df_raw[mgmt_type_col].astype(str).str.strip() if mgmt_type_col else "Unknown"
+
+        if div_col:
+            df_raw["Division"] = df_raw[div_col].fillna("").astype(str).str.strip().str.upper()
+            df_raw.loc[df_raw["Division"] == "", "Division"] = df_raw.loc[df_raw["Division"] == "", "Mandal Name"].apply(get_division)
+        else:
+            df_raw["Division"] = df_raw["Mandal Name"].apply(get_division)
+
+        for target_c in ["Total Students", "Completed Students", "Partially Completed Students"]:
+            actual_c = col_map.get(target_c.upper())
+            df_raw[target_c] = pd.to_numeric(df_raw[actual_c], errors="coerce").fillna(0).astype(int) if actual_c else 0
+
+        df_raw["Not Started Students"] = (df_raw["Total Students"] - df_raw["Completed Students"] - df_raw["Partially Completed Students"]).clip(lower=0)
+        df_raw["Total Pending Students"] = (df_raw["Total Students"] - df_raw["Completed Students"]).clip(lower=0)
+        df_raw["Completed_%"] = (df_raw["Completed Students"] / df_raw["Total Students"].replace(0, np.nan) * 100).round(2).fillna(0)
+        return df_raw
+
+    # Reusable UI Renderer for SA-1 and FA-2 Reports
+    def render_marks_entry_report(exam_label, file_path, prefix):
+        if not os.path.exists(file_path):
+            xlsx_files = [f for f in os.listdir(".") if f.endswith(".xlsx")]
+            st.warning(f"⚠️ `{file_path}` file kanipinchaledu. Repository lo unna Excel files: {xlsx_files}")
+            return
+
+        df_exam = load_exam_marks_data(file_path)
+        if df_exam.empty:
+            st.error("⚠️ Excel file lo 'School Code' / 'Total Students' columns dorakaledu.")
+            return
+
+        ALL_DIV_S = "All Divisions"
+        ALL_MTYPE_S = "All Management Types"
+        ALL_SMGMT_S = "All School Managements"
+        ALL_MNDL_S = "All Mandals"
+
+        fc1, fc2, fc3 = st.columns(3)
+        with fc1:
+            sel_div_e = st.selectbox("Filter by Division:", [ALL_DIV_S] + sorted(df_exam["Division"].unique().tolist()), key=f"{prefix}_div_f")
+        with fc2:
+            sel_mtype_e = st.selectbox("Filter by Management Type:", [ALL_MTYPE_S] + sorted(df_exam["Management Type"].unique().tolist()), key=f"{prefix}_mtype_f")
+        with fc3:
+            sel_smgmt_e = st.selectbox("Filter by School Management:", [ALL_SMGMT_S] + sorted(df_exam["School Management"].unique().tolist()), key=f"{prefix}_smgmt_f")
+
+        if sel_div_e != ALL_DIV_S:
+            df_exam = df_exam[df_exam["Division"] == sel_div_e]
+        if sel_mtype_e != ALL_MTYPE_S:
+            df_exam = df_exam[df_exam["Management Type"] == sel_mtype_e]
+        if sel_smgmt_e != ALL_SMGMT_S:
+            df_exam = df_exam[df_exam["School Management"] == sel_smgmt_e]
+
+        k1, k2, k3, k4, k5 = st.columns(5)
+        k1.metric("Total Schools", f"{len(df_exam):,}")
+        k2.metric("Total Students", f"{df_exam['Total Students'].sum():,}")
+        k3.metric("Completed", f"{df_exam['Completed Students'].sum():,}")
+        k4.metric("Pending (Incl. Partial)", f"{df_exam['Total Pending Students'].sum():,}")
+        tot_s = df_exam["Total Students"].sum()
+        comp_pct = round((df_exam["Completed Students"].sum() / tot_s * 100), 2) if tot_s > 0 else 0
+        k5.metric("Completed %", f"{comp_pct}%")
+
+        st.caption("🎨 Color Legend (Completed %): 🔴 < 30% | 🟠 30%–49.9% | 🟡 50%–74.9% | 🟢 ≥ 75% (Sorted Least to Highest)")
+
+        et1, et2, et3, et4 = st.tabs([
+            "🏛️ Division-Wise Abstract",
+            "📍 Mandal-Wise Abstract",
+            "🏢 Management-Type Wise Abstract",
+            "🏫 School-Wise Pending Report"
+        ])
+
+        with et1:
+            e_div_abs = df_exam.groupby("Division", as_index=False).agg(
+                Schools=("School Code", "count"),
+                Total_Students=("Total Students", "sum"),
+                Completed=("Completed Students", "sum"),
+                Partially_Completed=("Partially Completed Students", "sum"),
+                Not_Started=("Not Started Students", "sum"),
+                Total_Pending=("Total Pending Students", "sum"),
+            )
+            e_div_abs["Completed_%"] = (e_div_abs["Completed"] / e_div_abs["Total_Students"].replace(0, np.nan) * 100).round(2).fillna(0)
+            e_div_abs = e_div_abs.sort_values(by="Completed_%", ascending=True)
+            styled_e_div = e_div_abs.style.map(color_pct_cell, subset=["Completed_%"]).format({"Completed_%": "{:.2f}%"})
+            st.dataframe(styled_e_div, use_container_width=True, hide_index=True)
+
+        with et2:
+            e_mandal_abs = df_exam.groupby(["Division", "Mandal Name"], as_index=False).agg(
+                Schools=("School Code", "count"),
+                Total_Students=("Total Students", "sum"),
+                Completed=("Completed Students", "sum"),
+                Partially_Completed=("Partially Completed Students", "sum"),
+                Not_Started=("Not Started Students", "sum"),
+                Total_Pending=("Total Pending Students", "sum"),
+            )
+            e_mandal_abs["Completed_%"] = (e_mandal_abs["Completed"] / e_mandal_abs["Total_Students"].replace(0, np.nan) * 100).round(2).fillna(0)
+            e_mandal_abs = e_mandal_abs.sort_values(by="Completed_%", ascending=True)
+            styled_e_mandal = e_mandal_abs.style.map(color_pct_cell, subset=["Completed_%"]).format({"Completed_%": "{:.2f}%"})
+            st.dataframe(styled_e_mandal, use_container_width=True, hide_index=True)
+
+        with et3:
+            e_mgmt_abs = df_exam.groupby(["Management Type", "School Management"], as_index=False).agg(
+                Schools=("School Code", "count"),
+                Total_Students=("Total Students", "sum"),
+                Completed=("Completed Students", "sum"),
+                Partially_Completed=("Partially Completed Students", "sum"),
+                Not_Started=("Not Started Students", "sum"),
+                Total_Pending=("Total Pending Students", "sum"),
+            )
+            e_mgmt_abs["Completed_%"] = (e_mgmt_abs["Completed"] / e_mgmt_abs["Total_Students"].replace(0, np.nan) * 100).round(2).fillna(0)
+            e_mgmt_abs = e_mgmt_abs.sort_values(by="Completed_%", ascending=True)
+            styled_e_mgmt = e_mgmt_abs.style.map(color_pct_cell, subset=["Completed_%"]).format({"Completed_%": "{:.2f}%"})
+            st.dataframe(styled_e_mgmt, use_container_width=True, hide_index=True)
+
+        with et4:
+            sel_mandal_e = st.selectbox("Select Mandal:", [ALL_MNDL_S] + sorted(df_exam["Mandal Name"].unique().tolist()), key=f"{prefix}_mandal_f")
+            sch_e = df_exam if sel_mandal_e == ALL_MNDL_S else df_exam[df_exam["Mandal Name"] == sel_mandal_e]
+            if st.checkbox("Show Only Pending Schools (> 0)", value=True, key=f"{prefix}_pend_chk"):
+                sch_e = sch_e[sch_e["Total Pending Students"] > 0]
+
+            e_disp_cols = [
+                "Division", "Mandal Name", "School Code", "School Name",
+                "Management Type", "School Management",
+                "Total Students", "Completed Students", "Partially Completed Students",
+                "Not Started Students", "Total Pending Students", "Completed_%"
+            ]
+            sch_e_sorted = sch_e[e_disp_cols].sort_values(by=["Completed_%", "Total Pending Students"], ascending=[True, False])
+            styled_e_sch = sch_e_sorted.style.map(color_pct_cell, subset=["Completed_%"]).format({"Completed_%": "{:.2f}%"})
+            st.dataframe(styled_e_sch, use_container_width=True, hide_index=True)
+
+        sdl1, sdl2 = st.columns(2)
+        with sdl1:
+            e_buf = io.BytesIO()
+            with pd.ExcelWriter(e_buf, engine="openpyxl") as writer:
+                styled_e_div.to_excel(writer, sheet_name="Division_Abstract", index=False)
+                styled_e_mandal.to_excel(writer, sheet_name="Mandal_Abstract", index=False)
+                styled_e_mgmt.to_excel(writer, sheet_name="Management_Type_Abstract", index=False)
+                sch_e_sorted.to_excel(writer, sheet_name="School_Wise_Pending", index=False)
+            st.download_button(
+                label=f"📥 Download {exam_label} Excel Abstract (4 Sheets)",
+                data=e_buf.getvalue(),
+                file_name=f"{exam_label.replace('-', '')}_Marks_Entry_Pending_Abstract.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key=f"{prefix}_xl_btn"
+            )
+
+        with sdl2:
+            today_str = datetime.now().strftime("%d-%m-%Y %I:%M %p")
+            t_sch = e_div_abs["Schools"].sum()
+            t_stu = e_div_abs["Total_Students"].sum()
+            t_cmp = e_div_abs["Completed"].sum()
+            t_prt = e_div_abs["Partially_Completed"].sum()
+            t_nst = e_div_abs["Not_Started"].sum()
+            t_pnd = e_div_abs["Total_Pending"].sum()
+            t_cpct = (t_cmp / t_stu * 100) if t_stu > 0 else 0
+
+            s_div_rows = []
+            for idx, r in enumerate(e_div_abs.itertuples(), 1):
+                s_div_rows.append(
+                    f"<tr><td>{idx}</td><td style='text-align:left;font-weight:bold;'>{r.Division}</td>"
+                    f"<td>{r.Schools:,}</td><td>{r.Total_Students:,}</td><td>{r.Completed:,}</td>"
+                    f"<td>{r.Partially_Completed:,}</td><td>{r.Not_Started:,}</td><td>{r.Total_Pending:,}</td>"
+                    f"{print_pct_badge(r._8)}</tr>"
+                )
+            s_div_rows.append(
+                f"<tr class='total-row'><td colspan='2'>DISTRICT TOTAL</td><td>{t_sch:,}</td>"
+                f"<td>{t_stu:,}</td><td>{t_cmp:,}</td><td>{t_prt:,}</td><td>{t_nst:,}</td>"
+                f"<td>{t_pnd:,}</td><td>{t_cpct:.2f}%</td></tr>"
+            )
+
+            s_mgmt_rows = []
+            for idx, r in enumerate(e_mgmt_abs.itertuples(), 1):
+                s_mgmt_rows.append(
+                    f"<tr><td>{idx}</td><td style='text-align:left;'>{r._1}</td>"
+                    f"<td style='text-align:left;font-weight:bold;'>{r._2}</td><td>{r.Schools:,}</td>"
+                    f"<td>{r.Total_Students:,}</td><td>{r.Completed:,}</td><td>{r.Partially_Completed:,}</td>"
+                    f"<td>{r.Not_Started:,}</td><td>{r.Total_Pending:,}</td>{print_pct_badge(r._9)}</tr>"
+                )
+            s_mgmt_rows.append(
+                f"<tr class='total-row'><td colspan='3'>DISTRICT TOTAL</td><td>{t_sch:,}</td>"
+                f"<td>{t_stu:,}</td><td>{t_cmp:,}</td><td>{t_prt:,}</td><td>{t_nst:,}</td>"
+                f"<td>{t_pnd:,}</td><td>{t_cpct:.2f}%</td></tr>"
+            )
+
+            s_mandal_rows = []
+            for idx, r in enumerate(e_mandal_abs.itertuples(), 1):
+                s_mandal_rows.append(
+                    f"<tr><td>{idx}</td><td>{r.Division}</td><td style='text-align:left;font-weight:bold;'>{r._2}</td>"
+                    f"<td>{r.Schools:,}</td><td>{r.Total_Students:,}</td><td>{r.Completed:,}</td>"
+                    f"<td>{r.Partially_Completed:,}</td><td>{r.Not_Started:,}</td><td>{r.Total_Pending:,}</td>"
+                    f"{print_pct_badge(r._9)}</tr>"
+                )
+            s_mandal_rows.append(
+                f"<tr class='total-row'><td colspan='3'>DISTRICT TOTAL</td><td>{t_sch:,}</td>"
+                f"<td>{t_stu:,}</td><td>{t_cmp:,}</td><td>{t_prt:,}</td><td>{t_nst:,}</td>"
+                f"<td>{t_pnd:,}</td><td>{t_cpct:.2f}%</td></tr>"
+            )
+
+            exam_sections = (
+                "<h3>1. Division-Wise Abstract</h3>"
+                "<table><thead><tr><th>S.No</th><th>Division</th><th>Schools</th><th>Total Students</th>"
+                "<th>Completed</th><th>Partially Completed</th><th>Not Started</th><th>Total Pending</th>"
+                "<th>Completed %</th></tr></thead>"
+                f"<tbody>{''.join(s_div_rows)}</tbody></table>"
+                "<h3>2. Management-Type Wise Abstract</h3>"
+                "<table><thead><tr><th>S.No</th><th>Management Type</th><th>School Management</th><th>Schools</th>"
+                "<th>Total Students</th><th>Completed</th><th>Partially Completed</th><th>Not Started</th>"
+                "<th>Total Pending</th><th>Completed %</th></tr></thead>"
+                f"<tbody>{''.join(s_mgmt_rows)}</tbody></table>"
+                "<h3>3. Mandal-Wise Abstract (Sorted Least to Highest Completed %)</h3>"
+                "<table><thead><tr><th>S.No</th><th>Division</th><th>Mandal Name</th><th>Schools</th>"
+                "<th>Total Students</th><th>Completed</th><th>Partially Completed</th><th>Not Started</th>"
+                "<th>Total Pending</th><th>Completed %</th></tr></thead>"
+                f"<tbody>{''.join(s_mandal_rows)}</tbody></table>"
+            )
+            exam_print_html = build_a4_html(
+                f"{exam_label} Marks Entry Pending Abstract",
+                f"Division: {sel_div_e} | Mgmt Type: {sel_mtype_e} | Generated: {today_str}",
+                exam_sections
+            )
+            st.download_button(
+                label=f"🖨️ Print / Save {exam_label} A4 PDF Report",
+                data=exam_print_html.encode("utf-8"),
+                file_name=f"{exam_label.replace('-', '')}_Marks_Entry_Print_Report.html",
+                mime="text/html",
+                use_container_width=True,
+                key=f"{prefix}_pdf_btn"
+            )
+
+    # 3 Side-by-Side Sub-Tabs under CSE MIS Reports
+    mis_tab1, mis_tab2, mis_tab3 = st.tabs([
         "📱 LEAP Downloads Abstract",
-        "📝 SA-1 Marks Entry Pending Report"
+        "📝 SA-1 Marks Entry Pending Report",
+        "📋 FA-2 Marks Entry Pending Report"
     ])
 
     # =========================================================================
@@ -3546,255 +3802,10 @@ with tab4:
     # SUB-TAB 2: SA-1 MARKS ENTRY PENDING REPORT
     # =========================================================================
     with mis_tab2:
-        SA1_FILE_PATH = "SA1- MARKS UPDATION.xlsx"
+        render_marks_entry_report("SA-1", "SA1- MARKS UPDATION.xlsx", "mis_sa1")
 
-        @st.cache_data
-        def load_sa1_data(file_path):
-            preview = pd.read_excel(file_path, header=None, nrows=5)
-            header_row = 0
-            for idx, row in preview.iterrows():
-                row_str = " ".join([str(x).upper() for x in row.values if pd.notna(x)])
-                if "SCHOOL CODE" in row_str or "TOTAL STUDENTS" in row_str:
-                    header_row = idx
-                    break
-
-            df_raw = pd.read_excel(file_path, header=header_row)
-            df_raw.columns = [str(c).strip() for c in df_raw.columns]
-
-            col_map = {c.upper(): c for c in df_raw.columns}
-            sch_code_col = col_map.get("SCHOOL CODE")
-            mandal_col = col_map.get("MANDAL NAME")
-            sch_name_col = col_map.get("SCHOOL NAME")
-            sch_mgmt_col = col_map.get("SCHOOL MANAGEMENT")
-            mgmt_type_col = col_map.get("MANAGEMENT TYPE")
-            div_col = col_map.get("DIVISION")
-
-            if not sch_code_col or not mandal_col:
-                return pd.DataFrame()
-
-            df_raw = df_raw[df_raw[sch_code_col].notna()].copy()
-            df_raw["School Code"] = df_raw[sch_code_col].astype(str).str.replace(".0", "", regex=False).str.strip()
-            df_raw["Mandal Name"] = df_raw[mandal_col].astype(str).str.strip()
-            df_raw["School Name"] = df_raw[sch_name_col].astype(str).str.strip() if sch_name_col else ""
-            df_raw["School Management"] = df_raw[sch_mgmt_col].astype(str).str.strip() if sch_mgmt_col else "Unknown"
-            df_raw["Management Type"] = df_raw[mgmt_type_col].astype(str).str.strip() if mgmt_type_col else "Unknown"
-
-            if div_col:
-                df_raw["Division"] = df_raw[div_col].fillna("").astype(str).str.strip().str.upper()
-                df_raw.loc[df_raw["Division"] == "", "Division"] = df_raw.loc[df_raw["Division"] == "", "Mandal Name"].apply(get_division)
-            else:
-                df_raw["Division"] = df_raw["Mandal Name"].apply(get_division)
-
-            for target_c in ["Total Students", "Completed Students", "Partially Completed Students"]:
-                actual_c = col_map.get(target_c.upper())
-                df_raw[target_c] = pd.to_numeric(df_raw[actual_c], errors="coerce").fillna(0).astype(int) if actual_c else 0
-
-            df_raw["Not Started Students"] = (df_raw["Total Students"] - df_raw["Completed Students"] - df_raw["Partially Completed Students"]).clip(lower=0)
-            df_raw["Total Pending Students"] = (df_raw["Total Students"] - df_raw["Completed Students"]).clip(lower=0)
-            df_raw["Completed_%"] = (df_raw["Completed Students"] / df_raw["Total Students"].replace(0, np.nan) * 100).round(2).fillna(0)
-            return df_raw
-
-        if os.path.exists(SA1_FILE_PATH):
-            sa1_df = load_sa1_data(SA1_FILE_PATH)
-
-            if sa1_df.empty:
-                st.error("⚠️ Excel file lo 'School Code' / 'Total Students' columns dorakaledu.")
-            else:
-                ALL_DIV_S = "All Divisions"
-                ALL_MTYPE_S = "All Management Types"
-                ALL_SMGMT_S = "All School Managements"
-                ALL_MNDL_S = "All Mandals"
-
-                fc1, fc2, fc3 = st.columns(3)
-                with fc1:
-                    sel_div_sa1 = st.selectbox("Filter by Division:", [ALL_DIV_S] + sorted(sa1_df["Division"].unique().tolist()), key="mis_sa1_div_f")
-                with fc2:
-                    sel_mtype_sa1 = st.selectbox("Filter by Management Type:", [ALL_MTYPE_S] + sorted(sa1_df["Management Type"].unique().tolist()), key="mis_sa1_mtype_f")
-                with fc3:
-                    sel_smgmt_sa1 = st.selectbox("Filter by School Management:", [ALL_SMGMT_S] + sorted(sa1_df["School Management"].unique().tolist()), key="mis_sa1_smgmt_f")
-
-                if sel_div_sa1 != ALL_DIV_S:
-                    sa1_df = sa1_df[sa1_df["Division"] == sel_div_sa1]
-                if sel_mtype_sa1 != ALL_MTYPE_S:
-                    sa1_df = sa1_df[sa1_df["Management Type"] == sel_mtype_sa1]
-                if sel_smgmt_sa1 != ALL_SMGMT_S:
-                    sa1_df = sa1_df[sa1_df["School Management"] == sel_smgmt_sa1]
-
-                k1, k2, k3, k4, k5 = st.columns(5)
-                k1.metric("Total Schools", f"{len(sa1_df):,}")
-                k2.metric("Total Students", f"{sa1_df['Total Students'].sum():,}")
-                k3.metric("Completed", f"{sa1_df['Completed Students'].sum():,}")
-                k4.metric("Pending (Incl. Partial)", f"{sa1_df['Total Pending Students'].sum():,}")
-                tot_s = sa1_df["Total Students"].sum()
-                comp_pct = round((sa1_df["Completed Students"].sum() / tot_s * 100), 2) if tot_s > 0 else 0
-                k5.metric("Completed %", f"{comp_pct}%")
-
-                st.caption("🎨 Color Legend (Completed %): 🔴 < 30% | 🟠 30%–49.9% | 🟡 50%–74.9% | 🟢 ≥ 75% (Sorted Least to Highest)")
-
-                sa1_t1, sa1_t2, sa1_t3, sa1_t4 = st.tabs([
-                    "🏛️ Division-Wise Abstract",
-                    "📍 Mandal-Wise Abstract",
-                    "🏢 Management-Type Wise Abstract",
-                    "🏫 School-Wise Pending Report"
-                ])
-
-                with sa1_t1:
-                    sa1_div_abs = sa1_df.groupby("Division", as_index=False).agg(
-                        Schools=("School Code", "count"),
-                        Total_Students=("Total Students", "sum"),
-                        Completed=("Completed Students", "sum"),
-                        Partially_Completed=("Partially Completed Students", "sum"),
-                        Not_Started=("Not Started Students", "sum"),
-                        Total_Pending=("Total Pending Students", "sum"),
-                    )
-                    sa1_div_abs["Completed_%"] = (sa1_div_abs["Completed"] / sa1_div_abs["Total_Students"].replace(0, np.nan) * 100).round(2).fillna(0)
-                    sa1_div_abs = sa1_div_abs.sort_values(by="Completed_%", ascending=True)
-                    styled_sa1_div = sa1_div_abs.style.map(color_pct_cell, subset=["Completed_%"]).format({"Completed_%": "{:.2f}%"})
-                    st.dataframe(styled_sa1_div, use_container_width=True, hide_index=True)
-
-                with sa1_t2:
-                    sa1_mandal_abs = sa1_df.groupby(["Division", "Mandal Name"], as_index=False).agg(
-                        Schools=("School Code", "count"),
-                        Total_Students=("Total Students", "sum"),
-                        Completed=("Completed Students", "sum"),
-                        Partially_Completed=("Partially Completed Students", "sum"),
-                        Not_Started=("Not Started Students", "sum"),
-                        Total_Pending=("Total Pending Students", "sum"),
-                    )
-                    sa1_mandal_abs["Completed_%"] = (sa1_mandal_abs["Completed"] / sa1_mandal_abs["Total_Students"].replace(0, np.nan) * 100).round(2).fillna(0)
-                    sa1_mandal_abs = sa1_mandal_abs.sort_values(by="Completed_%", ascending=True)
-                    styled_sa1_mandal = sa1_mandal_abs.style.map(color_pct_cell, subset=["Completed_%"]).format({"Completed_%": "{:.2f}%"})
-                    st.dataframe(styled_sa1_mandal, use_container_width=True, hide_index=True)
-
-                with sa1_t3:
-                    sa1_mgmt_abs = sa1_df.groupby(["Management Type", "School Management"], as_index=False).agg(
-                        Schools=("School Code", "count"),
-                        Total_Students=("Total Students", "sum"),
-                        Completed=("Completed Students", "sum"),
-                        Partially_Completed=("Partially Completed Students", "sum"),
-                        Not_Started=("Not Started Students", "sum"),
-                        Total_Pending=("Total Pending Students", "sum"),
-                    )
-                    sa1_mgmt_abs["Completed_%"] = (sa1_mgmt_abs["Completed"] / sa1_mgmt_abs["Total_Students"].replace(0, np.nan) * 100).round(2).fillna(0)
-                    sa1_mgmt_abs = sa1_mgmt_abs.sort_values(by="Completed_%", ascending=True)
-                    styled_sa1_mgmt = sa1_mgmt_abs.style.map(color_pct_cell, subset=["Completed_%"]).format({"Completed_%": "{:.2f}%"})
-                    st.dataframe(styled_sa1_mgmt, use_container_width=True, hide_index=True)
-
-                with sa1_t4:
-                    sel_mandal_sa1 = st.selectbox("Select Mandal:", [ALL_MNDL_S] + sorted(sa1_df["Mandal Name"].unique().tolist()), key="mis_sa1_mandal_f")
-                    sch_sa1 = sa1_df if sel_mandal_sa1 == ALL_MNDL_S else sa1_df[sa1_df["Mandal Name"] == sel_mandal_sa1]
-                    if st.checkbox("Show Only Pending Schools (> 0)", value=True, key="mis_sa1_pend_chk"):
-                        sch_sa1 = sch_sa1[sch_sa1["Total Pending Students"] > 0]
-
-                    sa1_disp_cols = [
-                        "Division", "Mandal Name", "School Code", "School Name",
-                        "Management Type", "School Management",
-                        "Total Students", "Completed Students", "Partially Completed Students",
-                        "Not Started Students", "Total Pending Students", "Completed_%"
-                    ]
-                    sch_sa1_sorted = sch_sa1[sa1_disp_cols].sort_values(by=["Completed_%", "Total Pending Students"], ascending=[True, False])
-                    styled_sa1_sch = sch_sa1_sorted.style.map(color_pct_cell, subset=["Completed_%"]).format({"Completed_%": "{:.2f}%"})
-                    st.dataframe(styled_sa1_sch, use_container_width=True, hide_index=True)
-
-                sdl1, sdl2 = st.columns(2)
-                with sdl1:
-                    sa1_buf = io.BytesIO()
-                    with pd.ExcelWriter(sa1_buf, engine="openpyxl") as writer:
-                        styled_sa1_div.to_excel(writer, sheet_name="Division_Abstract", index=False)
-                        styled_sa1_mandal.to_excel(writer, sheet_name="Mandal_Abstract", index=False)
-                        styled_sa1_mgmt.to_excel(writer, sheet_name="Management_Type_Abstract", index=False)
-                        sch_sa1_sorted.to_excel(writer, sheet_name="School_Wise_Pending", index=False)
-                    st.download_button(
-                        label="📥 Download SA-1 Excel Abstract (4 Sheets)",
-                        data=sa1_buf.getvalue(),
-                        file_name="SA1_Marks_Entry_Pending_Abstract.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True,
-                        key="mis_sa1_xl_btn"
-                    )
-
-                with sdl2:
-                    today_str = datetime.now().strftime("%d-%m-%Y %I:%M %p")
-                    t_sch = sa1_div_abs["Schools"].sum()
-                    t_stu = sa1_div_abs["Total_Students"].sum()
-                    t_cmp = sa1_div_abs["Completed"].sum()
-                    t_prt = sa1_div_abs["Partially_Completed"].sum()
-                    t_nst = sa1_div_abs["Not_Started"].sum()
-                    t_pnd = sa1_div_abs["Total_Pending"].sum()
-                    t_cpct = (t_cmp / t_stu * 100) if t_stu > 0 else 0
-
-                    s_div_rows = []
-                    for idx, r in enumerate(sa1_div_abs.itertuples(), 1):
-                        s_div_rows.append(
-                            f"<tr><td>{idx}</td><td style='text-align:left;font-weight:bold;'>{r.Division}</td>"
-                            f"<td>{r.Schools:,}</td><td>{r.Total_Students:,}</td><td>{r.Completed:,}</td>"
-                            f"<td>{r.Partially_Completed:,}</td><td>{r.Not_Started:,}</td><td>{r.Total_Pending:,}</td>"
-                            f"{print_pct_badge(r._8)}</tr>"
-                        )
-                    s_div_rows.append(
-                        f"<tr class='total-row'><td colspan='2'>DISTRICT TOTAL</td><td>{t_sch:,}</td>"
-                        f"<td>{t_stu:,}</td><td>{t_cmp:,}</td><td>{t_prt:,}</td><td>{t_nst:,}</td>"
-                        f"<td>{t_pnd:,}</td><td>{t_cpct:.2f}%</td></tr>"
-                    )
-
-                    s_mgmt_rows = []
-                    for idx, r in enumerate(sa1_mgmt_abs.itertuples(), 1):
-                        s_mgmt_rows.append(
-                            f"<tr><td>{idx}</td><td style='text-align:left;'>{r._1}</td>"
-                            f"<td style='text-align:left;font-weight:bold;'>{r._2}</td><td>{r.Schools:,}</td>"
-                            f"<td>{r.Total_Students:,}</td><td>{r.Completed:,}</td><td>{r.Partially_Completed:,}</td>"
-                            f"<td>{r.Not_Started:,}</td><td>{r.Total_Pending:,}</td>{print_pct_badge(r._9)}</tr>"
-                        )
-                    s_mgmt_rows.append(
-                        f"<tr class='total-row'><td colspan='3'>DISTRICT TOTAL</td><td>{t_sch:,}</td>"
-                        f"<td>{t_stu:,}</td><td>{t_cmp:,}</td><td>{t_prt:,}</td><td>{t_nst:,}</td>"
-                        f"<td>{t_pnd:,}</td><td>{t_cpct:.2f}%</td></tr>"
-                    )
-
-                    s_mandal_rows = []
-                    for idx, r in enumerate(sa1_mandal_abs.itertuples(), 1):
-                        s_mandal_rows.append(
-                            f"<tr><td>{idx}</td><td>{r.Division}</td><td style='text-align:left;font-weight:bold;'>{r._2}</td>"
-                            f"<td>{r.Schools:,}</td><td>{r.Total_Students:,}</td><td>{r.Completed:,}</td>"
-                            f"<td>{r.Partially_Completed:,}</td><td>{r.Not_Started:,}</td><td>{r.Total_Pending:,}</td>"
-                            f"{print_pct_badge(r._9)}</tr>"
-                        )
-                    s_mandal_rows.append(
-                        f"<tr class='total-row'><td colspan='3'>DISTRICT TOTAL</td><td>{t_sch:,}</td>"
-                        f"<td>{t_stu:,}</td><td>{t_cmp:,}</td><td>{t_prt:,}</td><td>{t_nst:,}</td>"
-                        f"<td>{t_pnd:,}</td><td>{t_cpct:.2f}%</td></tr>"
-                    )
-
-                    sa1_sections = (
-                        "<h3>1. Division-Wise Abstract</h3>"
-                        "<table><thead><tr><th>S.No</th><th>Division</th><th>Schools</th><th>Total Students</th>"
-                        "<th>Completed</th><th>Partially Completed</th><th>Not Started</th><th>Total Pending</th>"
-                        "<th>Completed %</th></tr></thead>"
-                        f"<tbody>{''.join(s_div_rows)}</tbody></table>"
-                        "<h3>2. Management-Type Wise Abstract</h3>"
-                        "<table><thead><tr><th>S.No</th><th>Management Type</th><th>School Management</th><th>Schools</th>"
-                        "<th>Total Students</th><th>Completed</th><th>Partially Completed</th><th>Not Started</th>"
-                        "<th>Total Pending</th><th>Completed %</th></tr></thead>"
-                        f"<tbody>{''.join(s_mgmt_rows)}</tbody></table>"
-                        "<h3>3. Mandal-Wise Abstract (Sorted Least to Highest Completed %)</h3>"
-                        "<table><thead><tr><th>S.No</th><th>Division</th><th>Mandal Name</th><th>Schools</th>"
-                        "<th>Total Students</th><th>Completed</th><th>Partially Completed</th><th>Not Started</th>"
-                        "<th>Total Pending</th><th>Completed %</th></tr></thead>"
-                        f"<tbody>{''.join(s_mandal_rows)}</tbody></table>"
-                    )
-                    sa1_print_html = build_a4_html(
-                        "SA-1 Marks Entry Pending Abstract",
-                        f"Division: {sel_div_sa1} | Mgmt Type: {sel_mtype_sa1} | Generated: {today_str}",
-                        sa1_sections
-                    )
-                    st.download_button(
-                        label="🖨️ Print / Save SA-1 A4 PDF Report",
-                        data=sa1_print_html.encode("utf-8"),
-                        file_name="SA1_Marks_Entry_Print_Report.html",
-                        mime="text/html",
-                        use_container_width=True,
-                        key="mis_sa1_pdf_btn"
-                    )
-        else:
-            xlsx_files = [f for f in os.listdir(".") if f.endswith(".xlsx")]
-            st.warning(f"⚠️ `{SA1_FILE_PATH}` file kanipinchaledu. Repository lo unna Excel files: {xlsx_files}")
+    # =========================================================================
+    # SUB-TAB 3: FA-2 MARKS ENTRY PENDING REPORT
+    # =========================================================================
+    with mis_tab3:
+        render_marks_entry_report("FA-2", "FA2- MARKS UPDATION.xlsx", "mis_fa2")
