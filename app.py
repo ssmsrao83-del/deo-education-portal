@@ -3385,4 +3385,70 @@ with tab4:
                     Pending_Parents=("Pending Parents", "sum"),
                 )
                 div_abs["Students_%"] = (div_abs["Achieved_Students"] / div_abs["Target_Students"].replace(0, np.nan) * 100).round(2).fillna(0)
-                div_abs["Parents_%"] = (div_abs["Achieved_Parents"] / div_abs["Target_Parents"].
+                div_abs["Parents_%"] = (div_abs["Achieved_Parents"] / div_abs["Target_Parents"].replace(0, np.nan) * 100).round(2).fillna(0)
+                div_abs = div_abs.sort_values(by="Parents_%", ascending=True)
+
+                styled_div = div_abs.style.map(color_pct_cell, subset=["Parents_%", "Students_%"]).format({
+                    "Students_%": "{:.2f}%",
+                    "Parents_%": "{:.2f}%"
+                })
+                st.dataframe(styled_div, use_container_width=True, hide_index=True)
+
+            # 2. MANDAL-WISE ABSTRACT (Sorted Least to Highest Parents %)
+            with sub_t2:
+                mandal_abs = leap_df.groupby(["Division", "Mandal Name"], as_index=False).agg(
+                    Schools=("School Code", "count"),
+                    Target_Students=("Target Students", "sum"),
+                    Achieved_Students=("Achieved Students", "sum"),
+                    Pending_Students=("Pending Students", "sum"),
+                    Target_Parents=("Target Parents", "sum"),
+                    Achieved_Parents=("Achieved Parents", "sum"),
+                    Pending_Parents=("Pending Parents", "sum"),
+                )
+                mandal_abs["Students_%"] = (mandal_abs["Achieved_Students"] / mandal_abs["Target_Students"].replace(0, np.nan) * 100).round(2).fillna(0)
+                mandal_abs["Parents_%"] = (mandal_abs["Achieved_Parents"] / mandal_abs["Target_Parents"].replace(0, np.nan) * 100).round(2).fillna(0)
+                mandal_abs = mandal_abs.sort_values(by="Parents_%", ascending=True)
+
+                styled_mandal = mandal_abs.style.map(color_pct_cell, subset=["Parents_%", "Students_%"]).format({
+                    "Students_%": "{:.2f}%",
+                    "Parents_%": "{:.2f}%"
+                })
+                st.dataframe(styled_mandal, use_container_width=True, hide_index=True)
+
+            # 3. SCHOOL-WISE PENDING REPORT (Sorted Least to Highest Parents %)
+            with sub_t3:
+                mandal_list = ["All Mandals"] + sorted(leap_df["Mandal Name"].unique().tolist())
+                sel_mandal = st.selectbox("Select Mandal:", mandal_list, key="leap_mandal_filter")
+                sch_df = leap_df if sel_mandal == "All Mandals" else leap_df[leap_df["Mandal Name"] == sel_mandal]
+                only_pending = st.checkbox("Show Only Pending Schools (> 0)", value=True, key="leap_only_pend_chk")
+                if only_pending:
+                    sch_df = sch_df[(sch_df["Pending Students"] > 0) | (sch_df["Pending Parents"] > 0)]
+
+                disp_cols = [
+                    "Division", "Mandal Name", "School Code", "School Name", "Management",
+                    "Target Students", "Achieved Students", "Pending Students", "Students_%",
+                    "Target Parents", "Achieved Parents", "Pending Parents", "Parents_%"
+                ]
+                sch_sorted = sch_df[disp_cols].sort_values(by=["Parents_%", "Pending Parents"], ascending=[True, False])
+                styled_sch = sch_sorted.style.map(color_pct_cell, subset=["Parents_%", "Students_%"]).format({
+                    "Students_%": "{:.2f}%",
+                    "Parents_%": "{:.2f}%"
+                })
+                st.dataframe(styled_sch, use_container_width=True, hide_index=True)
+
+            # Excel Download Button (With Color Coding in Excel too!)
+            buf = io.BytesIO()
+            with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+                styled_div.to_excel(writer, sheet_name="Division_Abstract", index=False)
+                styled_mandal.to_excel(writer, sheet_name="Mandal_Abstract", index=False)
+                sch_sorted.to_excel(writer, sheet_name="School_Wise_Pending", index=False)
+
+            st.download_button(
+                label="📥 Download Division & Mandal Abstract (Color-Coded Excel)",
+                data=buf.getvalue(),
+                file_name="LEAP_Mandal_Division_Abstract.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+    else:
+        xlsx_files = [f for f in os.listdir(".") if f.endswith(".xlsx")]
+        st.warning(f"⚠️ `{LEAP_FILE_PATH}` file kanipinchaledu. Repository lo unna Excel files: {xlsx_files}")
