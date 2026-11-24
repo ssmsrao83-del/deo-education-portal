@@ -3227,11 +3227,9 @@ with tab3:
             )
       else:
         st.info("Cadre vivaraalu labhinchaledhu.")
-
 # =========================================================
 # ------------------ TAB 4: MIS REPORTS -------------------
 # =========================================================
-with tab4:
 st.subheader("📄 CSE MIS Reports — LEAP Downloads Abstract")
     DIVISION_MAP = {
         "BHIMAVARAM": "Bhimavaram Division",
