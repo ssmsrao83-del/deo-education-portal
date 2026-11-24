@@ -3858,8 +3858,7 @@ with tab4:
     # REPORT 2: SA-1 MARKS ENTRY PENDING REPORT
     # =========================================================================
     elif mis_report_type == "📝 SA-1 Marks Entry Pending Report":
-        SA1_FILE_PATH = "SA1 MARKS ENTRY.xlsx"
-
+        SA1_FILE_PATH = "SA1- MARKS UPDATION.xlsx"
         @st.cache_data
         def load_sa1_data(file_path):
             preview = pd.read_excel(file_path, header=None, nrows=5)
