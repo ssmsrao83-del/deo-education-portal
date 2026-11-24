@@ -400,7 +400,7 @@ def render_exam_report(exam_label, file_path, prefix):
         html = build_a4_html(f"{exam_label} Marks Entry Pending Abstract", f"Division: {sel_div} | Mgmt: {sel_mt} | {today_str}", body)
         st.download_button(f"🖨️ Print / Save {exam_label} A4 PDF", html.encode("utf-8"), f"{exam_label}_Print.html", "text/html", use_container_width=True, key=f"{prefix}_pdf")
 
-
+@st.fragment
 def render_cse_mis_tab():
     st.subheader("📄 CSE MIS Reports")
     report_choice = st.radio(
