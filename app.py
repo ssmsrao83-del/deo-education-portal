@@ -3232,6 +3232,7 @@ with tab3:
 # =====================================================================
 with tab4:
     st.subheader("📄 CSE MIS Reports — LEAP Downloads Abstract")
+    LEAP_FILE_PATH = "LEAP DOWNLOADS ABSTRACT.xlsx"
     DIVISION_MAP = {
         "BHIMAVARAM": "Bhimavaram Division",
         "VEERAVASARAM": "Bhimavaram Division",
