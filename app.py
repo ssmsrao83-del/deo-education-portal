@@ -3235,37 +3235,44 @@ with tab4:
     LEAP_FILE_PATH = "LEAP DOWNLOADS ABSTRACT.xlsx"
 
     DIVISION_MAP = {
-        "BHIMAVARAM": "Bhimavaram Division",
-        "BHIMAVARAM URBAN": "Bhimavaram Division",
-        "BHIMAVARAM RURAL": "Bhimavaram Division",
-        "VEERAVASARAM": "Bhimavaram Division",
-        "KALLA": "Bhimavaram Division",
-        "UNDI": "Bhimavaram Division",
-        "AKIVEEDU": "Bhimavaram Division",
-        "PALAKODERU": "Bhimavaram Division",
-        "NARSAPURAM": "Narsapuram Division",
-        "NARSAPUR": "Narsapuram Division",
-        "MOGALTHUR": "Narsapuram Division",
-        "MOGALTHURU": "Narsapuram Division",
-        "PALACOLE": "Narsapuram Division",
-        "PALAKOLLU": "Narsapuram Division",
-        "YELAMANCHILI": "Narsapuram Division",
-        "PODURU": "Narsapuram Division",
-        "ACHANTA": "Narsapuram Division",
-        "PENUGONDA": "Tanuku Division",
-        "PENUMANTRA": "Tanuku Division",
-        "IRAGAVARAM": "Tanuku Division",
-        "ATTILI": "Tanuku Division",
-        "TANUKU": "Tanuku Division",
-        "TADEPALLIGUDEM": "Tadepalligudem Division",
-        "PENTAPADU": "Tadepalligudem Division",
-        "GANAPAVARAM": "Tadepalligudem Division",
+        # BHIMAVARAM DIVISION (10 Mandals)
+        "AKIVEEDU": "BHIMAVARAM",
+        "ATTILI": "BHIMAVARAM",
+        "BHIMAVARAM": "BHIMAVARAM",
+        "BHIMAVARAM URBAN": "BHIMAVARAM",
+        "BHIMAVARAM RURAL": "BHIMAVARAM",
+        "GANAPAVARAM": "BHIMAVARAM",
+        "KALLA": "BHIMAVARAM",
+        "PALAKODERU": "BHIMAVARAM",
+        "PENTAPADU": "BHIMAVARAM",
+        "TADEPALLI GUDEM": "BHIMAVARAM",
+        "TADEPALLIGUDEM": "BHIMAVARAM",
+        "UNDI": "BHIMAVARAM",
+        "VEERAVASARAM": "BHIMAVARAM",
+
+        # NARASAPURAM DIVISION (10 Mandals)
+        "ACHANTA": "NARASAPURAM",
+        "ELAMANCHILI": "NARASAPURAM",
+        "YELAMANCHILI": "NARASAPURAM",
+        "IRAGAVARAM": "NARASAPURAM",
+        "MOGALTUR": "NARASAPURAM",
+        "MOGALTHUR": "NARASAPURAM",
+        "MOGALTHURU": "NARASAPURAM",
+        "NARSAPURAM": "NARASAPURAM",
+        "NARASAPURAM": "NARASAPURAM",
+        "NARSAPUR": "NARASAPURAM",
+        "PALACOLE": "NARASAPURAM",
+        "PALAKOLLU": "NARASAPURAM",
+        "PENUGONDA": "NARASAPURAM",
+        "PENUMANTRA": "NARASAPURAM",
+        "PODURU": "NARASAPURAM",
+        "TANUKU": "NARASAPURAM",
     }
 
     def get_division(mandal_name):
         if pd.isna(mandal_name):
             return "Unmapped"
-        clean = str(mandal_name).upper().replace("(M)", "").replace("(U)", "").replace("(R)", "").strip()
+        clean = " ".join(str(mandal_name).upper().replace("(M)", "").replace("(U)", "").replace("(R)", "").split())
         return DIVISION_MAP.get(clean, "Unmapped")
 
     @st.cache_data
@@ -3297,8 +3304,9 @@ with tab4:
         df_raw["School Name"] = df_raw[sch_name_col].astype(str).str.strip() if sch_name_col else ""
         df_raw["Management"] = df_raw[mgmt_col].astype(str).str.strip() if mgmt_col else "All"
 
+        # Excel lo DIVISION column unte daanini teesukuntundi, lekapothe get_division() vaaduthundi
         if div_col:
-            df_raw["Division"] = df_raw[div_col].fillna("").astype(str).str.strip()
+            df_raw["Division"] = df_raw[div_col].fillna("").astype(str).str.strip().str.upper()
             df_raw.loc[df_raw["Division"] == "", "Division"] = df_raw.loc[df_raw["Division"] == "", "Mandal Name"].apply(get_division)
         else:
             df_raw["Division"] = df_raw["Mandal Name"].apply(get_division)
@@ -3347,6 +3355,7 @@ with tab4:
                 "🏫 School-Wise Pending Report"
             ])
 
+            # 1. DIVISION-WISE ABSTRACT
             with sub_t1:
                 div_abs = leap_df.groupby("Division", as_index=False).agg(
                     Schools=("School Code", "count"),
@@ -3362,6 +3371,7 @@ with tab4:
                 div_abs = div_abs.sort_values(by="Pending_Students", ascending=False)
                 st.dataframe(div_abs, use_container_width=True, hide_index=True)
 
+            # 2. MANDAL-WISE ABSTRACT
             with sub_t2:
                 mandal_abs = leap_df.groupby(["Division", "Mandal Name"], as_index=False).agg(
                     Schools=("School Code", "count"),
@@ -3377,6 +3387,7 @@ with tab4:
                 mandal_abs = mandal_abs.sort_values(by="Pending_Students", ascending=False)
                 st.dataframe(mandal_abs, use_container_width=True, hide_index=True)
 
+            # 3. SCHOOL-WISE PENDING REPORT
             with sub_t3:
                 mandal_list = ["All Mandals"] + sorted(leap_df["Mandal Name"].unique().tolist())
                 sel_mandal = st.selectbox("Select Mandal:", mandal_list, key="leap_mandal_filter")
@@ -3396,6 +3407,7 @@ with tab4:
                     hide_index=True
                 )
 
+            # Excel Download Button (All 3 Sheets)
             buf = io.BytesIO()
             with pd.ExcelWriter(buf, engine="openpyxl") as writer:
                 div_abs.to_excel(writer, sheet_name="Division_Abstract", index=False)
