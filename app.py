@@ -3322,5 +3322,35 @@ st.subheader("📄 CSE MIS Reports — LEAP Downloads Abstract")
             st.dataframe(mandal_abs, use_container_width=True, hide_index=True)
 
         with sub_t3:
-            sel_mandal = st.selectbox(
-                "Select
+            mandal_list = ["All Mandals"] + sorted(leap_df["Mandal Name"].dropna().unique().tolist())
+            sel_mandal = st.selectbox("Select Mandal:", mandal_list, key="leap_mandal")
+            sch_df = leap_df if sel_mandal == "All Mandals" else leap_df[leap_df["Mandal Name"] == sel_mandal]
+            only_pending = st.checkbox("Show Only Pending Schools (> 0)", value=True, key="leap_only_pend")
+            if only_pending:
+                sch_df = sch_df[(sch_df["Pending Students"] > 0) | (sch_df["Pending Parents"] > 0)]
+
+            disp_cols = [
+                "Division", "Mandal Name", "School Code", "School Name", "Management",
+                "Target Students", "Achieved Students", "Pending Students",
+                "Target Parents", "Achieved Parents", "Pending Parents"
+            ]
+            st.dataframe(
+                sch_df[disp_cols].sort_values(by="Pending Students", ascending=False),
+                use_container_width=True,
+                hide_index=True
+            )
+
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+            div_abs.to_excel(writer, sheet_name="Division_Abstract", index=False)
+            mandal_abs.to_excel(writer, sheet_name="Mandal_Abstract", index=False)
+            leap_df[disp_cols].to_excel(writer, sheet_name="School_Wise_Pending", index=False)
+
+        st.download_button(
+            label="📥 Download Division & Mandal Abstract (Excel)",
+            data=buf.getvalue(),
+            file_name="LEAP_Mandal_Division_Abstract.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    else:
+        st.warning(f"⚠️ `{LEAP_FILE_PATH}` file repository lo ledu. Dayachesi GitHub lo upload cheyandi.")
