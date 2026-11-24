@@ -3234,9 +3234,42 @@ with tab4:
     st.subheader("📄 CSE MIS Reports — LEAP Downloads Abstract")
     LEAP_FILE_PATH = "LEAP DOWNLOADS ABSTRACT.xlsx"
 
+    DIVISION_MAP = {
+        "BHIMAVARAM": "Bhimavaram Division",
+        "BHIMAVARAM URBAN": "Bhimavaram Division",
+        "BHIMAVARAM RURAL": "Bhimavaram Division",
+        "VEERAVASARAM": "Bhimavaram Division",
+        "KALLA": "Bhimavaram Division",
+        "UNDI": "Bhimavaram Division",
+        "AKIVEEDU": "Bhimavaram Division",
+        "PALAKODERU": "Bhimavaram Division",
+        "NARSAPURAM": "Narsapuram Division",
+        "NARSAPUR": "Narsapuram Division",
+        "MOGALTHUR": "Narsapuram Division",
+        "MOGALTHURU": "Narsapuram Division",
+        "PALACOLE": "Narsapuram Division",
+        "PALAKOLLU": "Narsapuram Division",
+        "YELAMANCHILI": "Narsapuram Division",
+        "PODURU": "Narsapuram Division",
+        "ACHANTA": "Narsapuram Division",
+        "PENUGONDA": "Tanuku Division",
+        "PENUMANTRA": "Tanuku Division",
+        "IRAGAVARAM": "Tanuku Division",
+        "ATTILI": "Tanuku Division",
+        "TANUKU": "Tanuku Division",
+        "TADEPALLIGUDEM": "Tadepalligudem Division",
+        "PENTAPADU": "Tadepalligudem Division",
+        "GANAPAVARAM": "Tadepalligudem Division",
+    }
+
+    def get_division(mandal_name):
+        if pd.isna(mandal_name):
+            return "Unmapped"
+        clean = str(mandal_name).upper().replace("(M)", "").replace("(U)", "").replace("(R)", "").strip()
+        return DIVISION_MAP.get(clean, "Unmapped")
+
     @st.cache_data
     def load_leap_data(file_path):
-        # Row 1 lo header unda leda Row 2 lo header unda ani auto-detect chesthundi
         preview = pd.read_excel(file_path, header=None, nrows=5)
         header_row = 0
         for idx, row in preview.iterrows():
@@ -3248,7 +3281,6 @@ with tab4:
         df_raw = pd.read_excel(file_path, header=header_row)
         df_raw.columns = [str(c).strip() for c in df_raw.columns]
 
-        # Column names case-insensitive ga match cheyadam
         col_map = {c.upper(): c for c in df_raw.columns}
         sch_code_col = col_map.get("SCHOOL CODE")
         mandal_col = col_map.get("MANDAL NAME")
@@ -3265,7 +3297,6 @@ with tab4:
         df_raw["School Name"] = df_raw[sch_name_col].astype(str).str.strip() if sch_name_col else ""
         df_raw["Management"] = df_raw[mgmt_col].astype(str).str.strip() if mgmt_col else "All"
 
-        # Excel lo DIVISION column unte daanini teesukuntundi, lekapothe get_division() vaaduthundi
         if div_col:
             df_raw["Division"] = df_raw[div_col].fillna("").astype(str).str.strip()
             df_raw.loc[df_raw["Division"] == "", "Division"] = df_raw.loc[df_raw["Division"] == "", "Mandal Name"].apply(get_division)
