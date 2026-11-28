@@ -76,16 +76,16 @@ def print_pct_badge(v):
 
 def build_a4_html(report_title, filter_meta, body_html):
     css = (
-        "@page{size:A4 landscape;margin:5mm;}"
-        "body{font-family:Arial,sans-serif;color:#111;margin:0;padding:4px;-webkit-print-color-adjust:exact;print-color-adjust:exact;}"
-        ".header{text-align:center;border-bottom:1.5px solid #0f766e;padding-bottom:3px;margin-bottom:4px;}"
-        ".header h2{margin:0;font-size:13px;color:#0f766e;}"
-        ".header p{margin:1px 0 0;font-size:9px;color:#444;}"
+        "@page{size:A4 landscape;margin:6mm;}"
+        "body{font-family:Arial,sans-serif;color:#111;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}"
+        ".header{text-align:center;border-bottom:1.5px solid #0f766e;padding-bottom:4px;margin-bottom:6px;}"
+        ".header h2{margin:0;font-size:15px;color:#0f766e;}"
+        ".header p{margin:2px 0 0;font-size:10px;color:#333;}"
         ".print-btn{background:#0f766e;color:#fff;border:none;padding:6px 12px;font-size:11px;font-weight:bold;border-radius:4px;cursor:pointer;margin-bottom:6px;}"
-        "@media print{.print-btn{display:none;}body{zoom:0.78;}}"
-        "h3{font-size:10px;margin:4px 0 2px;color:#1e3a8a;}"
-        "table{width:100%;border-collapse:collapse;font-size:8.2px;margin-bottom:5px;}"
-        "th,td{border:1px solid #94a3b8;padding:1.8px 3px;text-align:center;line-height:1.15;}"
+        "@media print{.print-btn{display:none;}}"
+        "h3{font-size:11px;margin:7px 0 3px;color:#1e3a8a;}"
+        "table{width:100%;border-collapse:collapse;font-size:9.5px;margin-bottom:7px;}"
+        "th,td{border:1px solid #94a3b8;padding:3px 4px;text-align:center;line-height:1.25;}"
         "th{background-color:#0f766e;color:#fff;font-weight:bold;}"
         ".total-row td{background-color:#e2e8f0;font-weight:bold;}"
     )
